@@ -23,5 +23,5 @@ class Config:
     FLASK_DEBUG = os.getenv('FLASK_DEBUG', 'True').lower() == 'true'
     
     # Database Configuration
-    SQLALCHEMY_DATABASE_URI = os.getenv('DATABASE_URL', 'sqlite:///voice_assistant.db')
+    SQLALCHEMY_DATABASE_URI = os.getenv('DATABASE_URL', 'sqlite:////home/app/voice_assistant.db')
     SQLALCHEMY_TRACK_MODIFICATIONS = False

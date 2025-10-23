@@ -211,8 +211,33 @@ docker run -p 5000:5000 voice-assistant
 ### Docker Compose
 
 ```bash
+# With Nginx (recommended for production)
 docker-compose up -d
+
+# Or use the convenience script
+./start-with-nginx.sh
 ```
+
+### Docker Compose Services
+
+- **voice-assistant** - Flask приложение
+- **nginx** - Reverse proxy и статические файлы
+- **voice-assistant-network** - Внутренняя сеть Docker
+
+### Nginx Configuration
+
+Nginx настроен как reverse proxy с:
+
+- **Rate Limiting** - защита от DDoS атак
+- **Static Files** - обслуживание CSS/JS файлов
+- **Security Headers** - защита от XSS и других атак
+- **Gzip Compression** - сжатие для ускорения
+- **Health Checks** - мониторинг состояния
+
+#### Порты:
+- **80** - HTTP (основной)
+- **443** - HTTPS (настроить SSL сертификаты)
+- **5000** - Прямой доступ к Flask (только для разработки)
 
 ## 📊 Мониторинг и логирование
 
@@ -291,6 +316,83 @@ npm install -g ngrok
 ngrok http 5000
 
 # Используйте URL ngrok в настройках Twilio
+```
+
+## 🚀 Деплой на сервер
+
+### Подготовка сервера
+
+1. **Установка Docker и Docker Compose:**
+   ```bash
+   # Обновление системы
+   sudo apt update && sudo apt upgrade -y
+   
+   # Установка Docker
+   curl -fsSL https://get.docker.com -o get-docker.sh
+   sudo sh get-docker.sh
+   sudo usermod -aG docker $USER
+   
+   # Установка Docker Compose
+   sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+   sudo chmod +x /usr/local/bin/docker-compose
+   ```
+
+2. **Клонирование и настройка:**
+   ```bash
+   git clone <your-repo-url> /opt/voice-assistant
+   cd /opt/voice-assistant
+   
+   # Настройка .env файла
+   cp env.example .env
+   nano .env
+   ```
+
+3. **Настройка основного Nginx:**
+   ```bash
+   sudo ./setup-nginx.sh
+   ```
+
+4. **Получение SSL сертификата:**
+   ```bash
+   sudo certbot --nginx -d lisa.automatonsoft.de
+   ```
+
+5. **Запуск приложения:**
+   ```bash
+   ./deploy.sh
+   ```
+
+6. **Настройка автозапуска:**
+   ```bash
+   sudo cp voice-assistant.service /etc/systemd/system/
+   sudo systemctl enable voice-assistant.service
+   sudo systemctl start voice-assistant.service
+   ```
+
+### Архитектура на сервере
+
+```
+Интернет → Основной Nginx (443/80) → Внутренний Nginx (8080) → Flask App (5000)
+```
+
+- **Основной Nginx** - SSL терминация, проксирование на порт 8080
+- **Внутренний Nginx** - reverse proxy для Flask приложения
+- **Flask App** - основное приложение с базой данных
+
+### Мониторинг
+
+```bash
+# Статус контейнеров
+docker-compose ps
+
+# Логи приложения
+docker-compose logs -f voice-assistant
+
+# Логи Nginx
+docker-compose logs -f nginx
+
+# Системные логи
+sudo journalctl -u voice-assistant.service -f
 ```
 
 ## 🤝 Поддержка

@@ -24,10 +24,12 @@ RUN mkdir -p /app/instance
 # Create non-root user
 RUN useradd --create-home --shell /bin/bash app \
     && chown -R app:app /app
-USER app
 
-# Initialize database
+# Initialize database as root (before switching to app user)
 RUN python init_db.py
+
+# Switch to app user
+USER app
 
 # Expose port
 EXPOSE 5000
