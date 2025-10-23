@@ -68,6 +68,24 @@ else
     exit 1
 fi
 
+# Создание папки и установка прав для базы данных
+echo "📁 Создаем папку для базы данных..."
+docker-compose exec --user root voice-assistant mkdir -p /home/app
+docker-compose exec --user root voice-assistant chown -R app:app /home/app
+docker-compose exec --user root voice-assistant chmod 755 /home/app
+
+# Создание базы данных вручную
+echo "🗄️ Создаем базу данных..."
+docker-compose exec voice-assistant python -c "
+import sqlite3
+conn = sqlite3.connect('/home/app/voice_assistant.db')
+conn.execute('CREATE TABLE calls (id INTEGER PRIMARY KEY, call_sid TEXT, phone_number TEXT, language TEXT, status TEXT, created_at DATETIME, updated_at DATETIME)')
+conn.execute('CREATE TABLE conversations (id INTEGER PRIMARY KEY, call_id INTEGER, step TEXT, user_input TEXT, bot_response TEXT, timestamp DATETIME)')
+conn.execute('CREATE TABLE orders (id INTEGER PRIMARY KEY, call_id INTEGER, order_number TEXT, status TEXT, notes TEXT, created_at DATETIME, updated_at DATETIME)')
+conn.close()
+print('База данных создана успешно')
+"
+
 # Инициализация базы данных
 echo "🗄️ Инициализируем базу данных..."
 docker-compose exec voice-assistant python init_db.py

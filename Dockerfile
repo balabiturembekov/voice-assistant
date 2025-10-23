@@ -25,9 +25,6 @@ RUN mkdir -p /app/instance
 RUN useradd --create-home --shell /bin/bash app \
     && chown -R app:app /app
 
-# Initialize database as root (before switching to app user)
-RUN python init_db.py
-
 # Switch to app user
 USER app
 
