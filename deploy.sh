@@ -16,6 +16,16 @@ if [ ! -f .env ]; then
     exit 1
 fi
 
+# Проверка настроек продакшена
+echo "🔍 Проверяем настройки продакшена..."
+if grep -q "FLASK_ENV=production" .env && grep -q "FLASK_DEBUG=False" .env; then
+    echo "✅ Настройки продакшена корректны"
+else
+    echo "⚠️  Внимание: Убедитесь что в .env файле:"
+    echo "   FLASK_ENV=production"
+    echo "   FLASK_DEBUG=False"
+fi
+
 # Проверка Docker
 if ! command -v docker &> /dev/null; then
     echo "❌ Docker не установлен!"
@@ -49,7 +59,7 @@ docker-compose ps
 
 # Проверка здоровья
 echo "🏥 Проверяем здоровье приложения..."
-if curl -f http://localhost:8080/health > /dev/null 2>&1; then
+if curl -f http://localhost:8283/health > /dev/null 2>&1; then
     echo "✅ Приложение работает!"
 else
     echo "❌ Приложение не отвечает!"
@@ -71,5 +81,5 @@ echo "   docker-compose restart               # Перезапуск"
 echo "   docker-compose down                  # Остановка"
 echo ""
 echo "🌐 Приложение доступно по адресу:"
-echo "   http://localhost:8080                # Локально"
+echo "   http://localhost:8283                # Локально"
 echo "   https://lisa.automatonsoft.de        # Через основной Nginx"

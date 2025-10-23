@@ -19,8 +19,8 @@ class Config:
     
     
     # Flask Configuration
-    FLASK_ENV = os.getenv('FLASK_ENV', 'development')
-    FLASK_DEBUG = os.getenv('FLASK_DEBUG', 'True').lower() == 'true'
+    FLASK_ENV = os.getenv('FLASK_ENV', 'production')
+    FLASK_DEBUG = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
     
     # Database Configuration
     SQLALCHEMY_DATABASE_URI = os.getenv('DATABASE_URL', 'sqlite:////home/app/voice_assistant.db')

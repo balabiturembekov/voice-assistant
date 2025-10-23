@@ -37,6 +37,10 @@ nano .env
 - `COMPANY_NAME`
 - `WEBSITE_URL=https://lisa.automatonsoft.de`
 
+**Важно для продакшена:**
+- `FLASK_ENV=production` ✅
+- `FLASK_DEBUG=False` ✅
+
 ### 3. Настройка Nginx
 ```bash
 sudo ./setup-nginx.sh
@@ -83,9 +87,9 @@ git pull
 ## Архитектура
 
 ```
-Интернет → Nginx (443) → Docker Nginx (8080) → Flask (5000)
+Интернет → Nginx (443) → Docker Nginx (8081) → Flask (5000)
 ```
 
 - **Порт 443** - HTTPS с SSL сертификатом
-- **Порт 8080** - Внутренний Nginx в Docker
+- **Порт 8081** - Внутренний Nginx в Docker
 - **Порт 5000** - Flask приложение
