@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+
+{% block title %}Calls - Voice Assistant{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h1><i class="fas fa-phone me-2"></i>Call Management</h1>
+        <p class="text-muted">View and manage all voice assistant calls</p>
+    </div>
+</div>
+
+<!-- Filters -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-filter me-2"></i>Filters</h5>
+            </div>
+            <div class="card-body">
+                <form method="GET" class="row g-3">
+                    <div class="col-md-3">
+                        <label for="status" class="form-label">Status</label>
+                        <select name="status" id="status" class="form-select">
+                            <option value="">All Statuses</option>
+                            <option value="PROCESSING" {% if request.args.get('status') == 'PROCESSING' %}selected{% endif %}>В обработке</option>
+                            <option value="COMPLETED" {% if request.args.get('status') == 'COMPLETED' %}selected{% endif %}>Завершен</option>
+                            <option value="PROBLEM" {% if request.args.get('status') == 'PROBLEM' %}selected{% endif %}>Проблема</option>
+                            <option value="HANDLED" {% if request.args.get('status') == 'HANDLED' %}selected{% endif %}>Обработано</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="language" class="form-label">Language</label>
+                        <select name="language" id="language" class="form-select">
+                            <option value="">All Languages</option>
+                            <option value="de" {% if request.args.get('language') == 'de' %}selected{% endif %}>German</option>
+                            <option value="en" {% if request.args.get('language') == 'en' %}selected{% endif %}>English</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="phone" class="form-label">Phone Number</label>
+                        <input type="text" name="phone" id="phone" class="form-control" 
+                               placeholder="Search by phone..." value="{{ request.args.get('phone', '') }}">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">&nbsp;</label>
+                        <div class="d-grid">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-search me-1"></i>Filter
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Calls Table -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-list me-2"></i>Calls ({{ calls.total }})
+                </h5>
+                <div>
+                    <span class="badge bg-primary me-2">Page {{ calls.page }} of {{ calls.pages }}</span>
+                </div>
+            </div>
+            <div class="card-body">
+                {% if calls.items %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Phone</th>
+                                    <th>Language</th>
+                                    <th>Status</th>
+                                    <th>Created</th>
+                                    <th>Updated</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for call in calls.items %}
+                                <tr>
+                                    <td>{{ call.id }}</td>
+                                    <td>
+                                        <i class="fas fa-phone me-1"></i>{{ call.phone_number }}
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-info">{{ call.language.upper() }}</span>
+                                    </td>
+                                    <td>
+                                        <span class="badge status-{{ call.status.name.lower() }}">
+                                            {{ call.status.value }}
+                                        </span>
+                                    </td>
+                                    <td>{{ call.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                                    <td>{{ call.updated_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                                    <td>
+                                        <a href="/calls/{{ call.id }}" class="btn btn-sm btn-outline-primary">
+                                            <i class="fas fa-eye"></i> View
+                                        </a>
+                                        <button class="btn btn-sm btn-outline-secondary" onclick="updateStatus({{ call.id }})">
+                                            <i class="fas fa-edit"></i> Status
+                                        </button>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Pagination -->
+                    {% if calls.pages > 1 %}
+                    <nav aria-label="Calls pagination">
+                        <ul class="pagination justify-content-center">
+                            {% if calls.has_prev %}
+                                <li class="page-item">
+                                    <a class="page-link" href="{{ url_for('calls', page=calls.prev_num) }}">Previous</a>
+                                </li>
+                            {% endif %}
+                            
+                            {% for page_num in calls.iter_pages() %}
+                                {% if page_num %}
+                                    {% if page_num != calls.page %}
+                                        <li class="page-item">
+                                            <a class="page-link" href="{{ url_for('calls', page=page_num) }}">{{ page_num }}</a>
+                                        </li>
+                                    {% else %}
+                                        <li class="page-item active">
+                                            <span class="page-link">{{ page_num }}</span>
+                                        </li>
+                                    {% endif %}
+                                {% else %}
+                                    <li class="page-item disabled">
+                                        <span class="page-link">...</span>
+                                    </li>
+                                {% endif %}
+                            {% endfor %}
+                            
+                            {% if calls.has_next %}
+                                <li class="page-item">
+                                    <a class="page-link" href="{{ url_for('calls', page=calls.next_num) }}">Next</a>
+                                </li>
+                            {% endif %}
+                        </ul>
+                    </nav>
+                    {% endif %}
+                {% else %}
+                    <div class="text-center py-4">
+                        <i class="fas fa-phone-slash fa-3x text-muted mb-3"></i>
+                        <p class="text-muted">No calls found</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function updateStatus(callId) {
+    // TODO: Implement status update modal
+    alert('Status update functionality coming soon!');
+}
+</script>
+{% endblock %}

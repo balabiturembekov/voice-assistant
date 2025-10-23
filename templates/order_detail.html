@@ -1,0 +1,345 @@
+{% extends "base.html" %}
+
+{% block title %}Order #{{ order.id }} - Voice Assistant{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <!-- Header -->
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                    <h1><i class="fas fa-shopping-cart me-2"></i>Order #{{ order.id }}</h1>
+                    <p class="text-muted mb-0">Order Number: <code>{{ order.order_number }}</code></p>
+                </div>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-outline-primary" onclick="updateOrderStatus()">
+                        <i class="fas fa-edit"></i> Update Status
+                    </button>
+                    <a href="{{ url_for('orders') }}" class="btn btn-outline-secondary">
+                        <i class="fas fa-arrow-left"></i> Back to Orders
+                    </a>
+                </div>
+            </div>
+
+            <div class="row">
+                <!-- Order Information -->
+                <div class="col-md-8">
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h5 class="mb-0"><i class="fas fa-info-circle me-2"></i>Order Information</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <table class="table table-borderless">
+                                        <tr>
+                                            <td><strong>Order ID:</strong></td>
+                                            <td>#{{ order.id }}</td>
+                                        </tr>
+                                        <tr>
+                                            <td><strong>Order Number:</strong></td>
+                                            <td><code>{{ order.order_number }}</code></td>
+                                        </tr>
+                                        <tr>
+                                            <td><strong>Status:</strong></td>
+                                            <td>
+                                                <span class="badge status-{{ order.status.lower().replace(' ', '-') }}">
+                                                    {{ order.status }}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td><strong>Created:</strong></td>
+                                            <td>{{ order.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                                        </tr>
+                                        <tr>
+                                            <td><strong>Updated:</strong></td>
+                                            <td>{{ order.updated_at.strftime('%Y-%m-%d %H:%M:%S') if order.updated_at else order.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                                        </tr>
+                                    </table>
+                                </div>
+                                <div class="col-md-6">
+                                    <table class="table table-borderless">
+                                        <tr>
+                                            <td><strong>Related Call:</strong></td>
+                                            <td>
+                                                <a href="{{ url_for('call_detail', call_id=order.call_id) }}" class="text-decoration-none">
+                                                    Call #{{ order.call_id }}
+                                                </a>
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td><strong>Phone Number:</strong></td>
+                                            <td>{{ order.call.phone_number }}</td>
+                                        </tr>
+                                        <tr>
+                                            <td><strong>Call Status:</strong></td>
+                                            <td>
+                                                <span class="badge status-{{ order.call.status.name.lower() }}">
+                                                    {{ order.call.status.value }}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td><strong>Language:</strong></td>
+                                            <td>
+                                                {% if order.call.language == 'de' %}
+                                                    <span class="badge bg-primary">German</span>
+                                                {% else %}
+                                                    <span class="badge bg-secondary">English</span>
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                    </table>
+                                </div>
+                            </div>
+                            
+                            {% if order.notes %}
+                            <div class="mt-3">
+                                <h6><i class="fas fa-sticky-note me-2"></i>Notes</h6>
+                                <div class="bg-light p-3 rounded">
+                                    {{ order.notes }}
+                                </div>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <!-- Related Call Information -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0"><i class="fas fa-phone me-2"></i>Related Call Information</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <p><strong>Call SID:</strong> <code>{{ order.call.call_sid }}</code></p>
+                                    <p><strong>Phone Number:</strong> {{ order.call.phone_number }}</p>
+                                    <p><strong>Language:</strong> 
+                                        {% if order.call.language == 'de' %}
+                                            German
+                                        {% else %}
+                                            English
+                                        {% endif %}
+                                    </p>
+                                </div>
+                                <div class="col-md-6">
+                                    <p><strong>Call Status:</strong> 
+                                        <span class="badge status-{{ order.call.status.name.lower() }}">
+                                            {{ order.call.status.value }}
+                                        </span>
+                                    </p>
+                                    <p><strong>Call Started:</strong> {{ order.call.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</p>
+                                    <p><strong>Last Updated:</strong> {{ order.call.updated_at.strftime('%Y-%m-%d %H:%M:%S') }}</p>
+                                </div>
+                            </div>
+                            
+                            <div class="mt-3">
+                                <a href="{{ url_for('call_detail', call_id=order.call_id) }}" class="btn btn-primary">
+                                    <i class="fas fa-eye"></i> View Full Call Details
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Quick Actions -->
+                <div class="col-md-4">
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h5 class="mb-0"><i class="fas fa-bolt me-2"></i>Quick Actions</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="d-grid gap-2">
+                                <button class="btn btn-primary" onclick="updateOrderStatus()">
+                                    <i class="fas fa-edit"></i> Update Status
+                                </button>
+                                <a href="{{ url_for('call_detail', call_id=order.call_id) }}" class="btn btn-outline-info">
+                                    <i class="fas fa-phone"></i> View Call
+                                </a>
+                                <a href="{{ url_for('orders') }}" class="btn btn-outline-secondary">
+                                    <i class="fas fa-list"></i> All Orders
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Status History -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0"><i class="fas fa-history me-2"></i>Status History</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="timeline">
+                                <div class="timeline-item">
+                                    <div class="timeline-marker bg-primary"></div>
+                                    <div class="timeline-content">
+                                        <h6 class="mb-1">Order Created</h6>
+                                        <p class="text-muted mb-0">{{ order.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
+                                    </div>
+                                </div>
+                                
+                                {% if order.updated_at != order.created_at %}
+                                <div class="timeline-item">
+                                    <div class="timeline-marker bg-info"></div>
+                                    <div class="timeline-content">
+                                        <h6 class="mb-1">Last Updated</h6>
+                                        <p class="text-muted mb-0">{{ order.updated_at.strftime('%Y-%m-%d %H:%M') }}</p>
+                                    </div>
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Order Status Update Modal -->
+<div class="modal fade" id="orderStatusModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Update Order Status</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="orderStatusForm">
+                    <div class="mb-3">
+                        <label for="newOrderStatus" class="form-label">New Status</label>
+                        <select class="form-select" id="newOrderStatus" required>
+                            <option value="In Progress" {% if order.status == 'In Progress' %}selected{% endif %}>In Progress</option>
+                            <option value="Shipped" {% if order.status == 'Shipped' %}selected{% endif %}>Shipped</option>
+                            <option value="Delivered" {% if order.status == 'Delivered' %}selected{% endif %}>Delivered</option>
+                            <option value="Cancelled" {% if order.status == 'Cancelled' %}selected{% endif %}>Cancelled</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="orderNotes" class="form-label">Notes (Optional)</label>
+                        <textarea class="form-control" id="orderNotes" rows="3" placeholder="Add notes about this order...">{{ order.notes or '' }}</textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="submitOrderStatusUpdate()">Update Status</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.status-in-progress { background-color: #ffc107; color: #000; }
+.status-shipped { background-color: #17a2b8; color: #fff; }
+.status-delivered { background-color: #28a745; color: #fff; }
+.status-cancelled { background-color: #dc3545; color: #fff; }
+.status-processing { background-color: #6c757d; color: #fff; }
+.status-handled { background-color: #007bff; color: #fff; }
+.status-completed { background-color: #28a745; color: #fff; }
+.status-problem { background-color: #dc3545; color: #fff; }
+
+.timeline {
+    position: relative;
+    padding-left: 30px;
+}
+
+.timeline::before {
+    content: '';
+    position: absolute;
+    left: 15px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background-color: #dee2e6;
+}
+
+.timeline-item {
+    position: relative;
+    margin-bottom: 20px;
+}
+
+.timeline-marker {
+    position: absolute;
+    left: -22px;
+    top: 5px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 2px solid #fff;
+    box-shadow: 0 0 0 2px #dee2e6;
+}
+
+.timeline-content {
+    background: #f8f9fa;
+    padding: 10px 15px;
+    border-radius: 5px;
+    border-left: 3px solid #007bff;
+}
+</style>
+
+<script>
+function updateOrderStatus() {
+    const modal = new bootstrap.Modal(document.getElementById('orderStatusModal'));
+    modal.show();
+}
+
+function submitOrderStatusUpdate() {
+    const newStatus = document.getElementById('newOrderStatus').value;
+    const notes = document.getElementById('orderNotes').value;
+    
+    fetch(`/api/orders/{{ order.id }}/status`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            status: newStatus,
+            notes: notes
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.message) {
+            // Close modal
+            const modal = bootstrap.Modal.getInstance(document.getElementById('orderStatusModal'));
+            modal.hide();
+            
+            // Show success message
+            showAlert('Order status updated successfully!', 'success');
+            
+            // Refresh page after a short delay
+            setTimeout(() => {
+                window.location.reload();
+            }, 1000);
+        } else {
+            showAlert('Error updating order status: ' + data.error, 'danger');
+        }
+    })
+    .catch(error => {
+        showAlert('Error updating order status: ' + error, 'danger');
+    });
+}
+
+function showAlert(message, type) {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+    alertDiv.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    
+    const container = document.querySelector('.container-fluid');
+    container.insertBefore(alertDiv, container.firstChild);
+    
+    // Auto-hide after 5 seconds
+    setTimeout(() => {
+        if (alertDiv.parentNode) {
+            alertDiv.remove();
+        }
+    }, 5000);
+}
+</script>
+{% endblock %}

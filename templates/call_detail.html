@@ -1,0 +1,351 @@
+{% extends "base.html" %}
+
+{% block title %}Call {{ call.id }} - Voice Assistant{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="/">Dashboard</a></li>
+                <li class="breadcrumb-item"><a href="/calls">Calls</a></li>
+                <li class="breadcrumb-item active">Call {{ call.id }}</li>
+            </ol>
+        </nav>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Call Information -->
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-info-circle me-2"></i>Call Information</h5>
+            </div>
+            <div class="card-body">
+                <table class="table table-borderless">
+                    <tr>
+                        <td><strong>ID:</strong></td>
+                        <td>{{ call.id }}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Phone:</strong></td>
+                        <td><i class="fas fa-phone me-1"></i>{{ call.phone_number }}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Call SID:</strong></td>
+                        <td><code>{{ call.call_sid }}</code></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Language:</strong></td>
+                        <td><span class="badge bg-info">{{ call.language.upper() }}</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Status:</strong></td>
+                        <td>
+                            <span class="badge status-{{ call.status.name.lower() }}" id="status-badge">
+                                {{ call.status.value }}
+                            </span>
+                            <button class="btn btn-sm btn-outline-primary ms-2" onclick="showStatusModal()">
+                                <i class="fas fa-edit"></i> Change
+                            </button>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><strong>Created:</strong></td>
+                        <td>{{ call.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Updated:</strong></td>
+                        <td>{{ call.updated_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Conversation Log -->
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-comments me-2"></i>Conversation Log</h5>
+            </div>
+            <div class="card-body">
+                {% if conversations %}
+                    <div class="timeline">
+                        {% for conv in conversations %}
+                        <div class="timeline-item mb-3">
+                            <div class="d-flex">
+                                <div class="flex-shrink-0">
+                                    {% if conv.user_input %}
+                                        <div class="bg-primary text-white rounded-circle d-flex align-items-center justify-content-center" style="width: 40px; height: 40px;">
+                                            <i class="fas fa-user"></i>
+                                        </div>
+                                    {% else %}
+                                        <div class="bg-success text-white rounded-circle d-flex align-items-center justify-content-center" style="width: 40px; height: 40px;">
+                                            <i class="fas fa-robot"></i>
+                                        </div>
+                                    {% endif %}
+                                </div>
+                                <div class="flex-grow-1 ms-3">
+                                    <div class="card">
+                                        <div class="card-body">
+                                            <div class="d-flex justify-content-between align-items-start mb-2">
+                                                <h6 class="mb-0">
+                                                    {% if conv.user_input %}
+                                                        <i class="fas fa-user me-1"></i>User
+                                                    {% else %}
+                                                        <i class="fas fa-robot me-1"></i>Assistant
+                                                    {% endif %}
+                                                </h6>
+                                                <small class="text-muted">{{ conv.timestamp.strftime('%H:%M:%S') }}</small>
+                                            </div>
+                                            <p class="mb-0">
+                                                <strong>{{ conv.step.title() }}:</strong>
+                                                {% if conv.user_input %}
+                                                    {{ conv.user_input }}
+                                                {% else %}
+                                                    {{ conv.bot_response }}
+                                                {% endif %}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="text-center py-4">
+                        <i class="fas fa-comment-slash fa-3x text-muted mb-3"></i>
+                        <p class="text-muted">No conversation data available</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Orders Section -->
+{% if orders %}
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-shopping-cart me-2"></i>Orders</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Order Number</th>
+                                <th>Status</th>
+                                <th>Notes</th>
+                                <th>Created</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for order in orders %}
+                            <tr>
+                                <td><code>{{ order.order_number }}</code></td>
+                                <td><span class="badge bg-info">{{ order.status }}</span></td>
+                                <td>{{ order.notes or '-' }}</td>
+                                <td>{{ order.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                                <td>
+                                    <button class="btn btn-sm btn-outline-primary" onclick="showOrderStatusModal({{ order.id }})">
+                                        <i class="fas fa-edit"></i> Update
+                                    </button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Status Update Modal -->
+<div class="modal fade" id="statusModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Update Call Status</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="statusForm">
+                    <div class="mb-3">
+                        <label for="newStatus" class="form-label">New Status</label>
+                        <select class="form-select" id="newStatus" required>
+                            <option value="PROCESSING">В обработке</option>
+                            <option value="HANDLED">Обработано</option>
+                            <option value="COMPLETED">Завершен</option>
+                            <option value="PROBLEM">Проблема</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="statusNotes" class="form-label">Notes (Optional)</label>
+                        <textarea class="form-control" id="statusNotes" rows="3" placeholder="Add notes about this status change..."></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="updateCallStatus()">Update Status</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Order Status Update Modal -->
+<div class="modal fade" id="orderStatusModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Update Order Status</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="orderStatusForm">
+                    <input type="hidden" id="orderId">
+                    <div class="mb-3">
+                        <label for="orderStatus" class="form-label">Order Status</label>
+                        <input type="text" class="form-control" id="orderStatus" required placeholder="e.g., Shipped, Delivered, Cancelled">
+                    </div>
+                    <div class="mb-3">
+                        <label for="orderNotes" class="form-label">Notes</label>
+                        <textarea class="form-control" id="orderNotes" rows="3" placeholder="Add notes about this order..."></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="updateOrderStatus()">Update Order</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function showStatusModal() {
+    const modal = new bootstrap.Modal(document.getElementById('statusModal'));
+    modal.show();
+}
+
+function updateCallStatus() {
+    const newStatus = document.getElementById('newStatus').value;
+    const notes = document.getElementById('statusNotes').value;
+    
+    fetch(`/api/calls/{{ call.id }}/status`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            status: newStatus,
+            notes: notes
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.message) {
+            // Update the status badge
+            const statusBadge = document.getElementById('status-badge');
+            statusBadge.textContent = getStatusText(newStatus);
+            statusBadge.className = `badge status-${newStatus.toLowerCase()}`;
+            
+            // Close modal
+            const modal = bootstrap.Modal.getInstance(document.getElementById('statusModal'));
+            modal.hide();
+            
+            // Show success message
+            showAlert('Status updated successfully!', 'success');
+        } else {
+            showAlert('Error updating status: ' + data.error, 'danger');
+        }
+    })
+    .catch(error => {
+        showAlert('Error updating status: ' + error, 'danger');
+    });
+}
+
+function showOrderStatusModal(orderId) {
+    document.getElementById('orderId').value = orderId;
+    const modal = new bootstrap.Modal(document.getElementById('orderStatusModal'));
+    modal.show();
+}
+
+function updateOrderStatus() {
+    const orderId = document.getElementById('orderId').value;
+    const status = document.getElementById('orderStatus').value;
+    const notes = document.getElementById('orderNotes').value;
+    
+    fetch(`/api/orders/${orderId}/status`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            status: status,
+            notes: notes
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.message) {
+            // Close modal
+            const modal = bootstrap.Modal.getInstance(document.getElementById('orderStatusModal'));
+            modal.hide();
+            
+            // Show success message
+            showAlert('Order status updated successfully!', 'success');
+            
+            // Reload page to show updated data
+            setTimeout(() => location.reload(), 1000);
+        } else {
+            showAlert('Error updating order status: ' + data.error, 'danger');
+        }
+    })
+    .catch(error => {
+        showAlert('Error updating order status: ' + error, 'danger');
+    });
+}
+
+function getStatusText(status) {
+    const statusMap = {
+        'PROCESSING': 'В обработке',
+        'HANDLED': 'Обработано',
+        'COMPLETED': 'Завершен',
+        'PROBLEM': 'Проблема'
+    };
+    return statusMap[status] || status;
+}
+
+function showAlert(message, type) {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+    alertDiv.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    
+    // Insert at the top of the page
+    const container = document.querySelector('.container');
+    container.insertBefore(alertDiv, container.firstChild);
+    
+    // Auto-dismiss after 5 seconds
+    setTimeout(() => {
+        if (alertDiv.parentNode) {
+            alertDiv.parentNode.removeChild(alertDiv);
+        }
+    }, 5000);
+}
+</script>
+{% endblock %}

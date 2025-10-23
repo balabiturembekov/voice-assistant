@@ -1,0 +1,311 @@
+{% extends "base.html" %}
+
+{% block title %}Orders - Voice Assistant{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h1><i class="fas fa-shopping-cart me-2"></i>Orders</h1>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-outline-primary" onclick="refreshOrders()">
+                        <i class="fas fa-sync-alt"></i> Refresh
+                    </button>
+                </div>
+            </div>
+
+            <!-- Filters -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-filter me-2"></i>Filters</h5>
+                </div>
+                <div class="card-body">
+                    <form method="GET" class="row g-3">
+                        <div class="col-md-3">
+                            <label for="status_filter" class="form-label">Order Status</label>
+                            <select class="form-select" id="status_filter" name="status">
+                                <option value="">All Statuses</option>
+                                <option value="In Progress" {% if request.args.get('status') == 'In Progress' %}selected{% endif %}>In Progress</option>
+                                <option value="Shipped" {% if request.args.get('status') == 'Shipped' %}selected{% endif %}>Shipped</option>
+                                <option value="Delivered" {% if request.args.get('status') == 'Delivered' %}selected{% endif %}>Delivered</option>
+                                <option value="Cancelled" {% if request.args.get('status') == 'Cancelled' %}selected{% endif %}>Cancelled</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label for="phone_filter" class="form-label">Phone Number</label>
+                            <input type="text" class="form-control" id="phone_filter" name="phone" 
+                                   value="{{ request.args.get('phone', '') }}" placeholder="Enter phone number">
+                        </div>
+                        <div class="col-md-3">
+                            <label for="order_filter" class="form-label">Order Number</label>
+                            <input type="text" class="form-control" id="order_filter" name="order_number" 
+                                   value="{{ request.args.get('order_number', '') }}" placeholder="Enter order number">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">&nbsp;</label>
+                            <div class="d-flex gap-2">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-search"></i> Filter
+                                </button>
+                                <a href="{{ url_for('orders') }}" class="btn btn-outline-secondary">
+                                    <i class="fas fa-times"></i> Clear
+                                </a>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Orders Table -->
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fas fa-list me-2"></i>Orders
+                        <span class="badge bg-primary ms-2">{{ orders.total }} total</span>
+                    </h5>
+                </div>
+                <div class="card-body p-0">
+                    {% if orders.items %}
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Order ID</th>
+                                        <th>Order Number</th>
+                                        <th>Phone Number</th>
+                                        <th>Status</th>
+                                        <th>Call Status</th>
+                                        <th>Created</th>
+                                        <th>Updated</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for order in orders.items %}
+                                    <tr>
+                                        <td>
+                                            <a href="{{ url_for('order_detail', order_id=order.id) }}" class="text-decoration-none">
+                                                #{{ order.id }}
+                                            </a>
+                                        </td>
+                                        <td>
+                                            <code>{{ order.order_number }}</code>
+                                        </td>
+                                        <td>
+                                            <a href="{{ url_for('call_detail', call_id=order.call_id) }}" class="text-decoration-none">
+                                                {{ order.call.phone_number }}
+                                            </a>
+                                        </td>
+                                        <td>
+                                            <span class="badge status-{{ order.status.lower().replace(' ', '-') }}">
+                                                {{ order.status }}
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <span class="badge status-{{ order.call.status.name.lower() }}">
+                                                {{ order.call.status.value }}
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <small class="text-muted">
+                                                {{ order.created_at.strftime('%Y-%m-%d %H:%M') }}
+                                            </small>
+                                        </td>
+                                        <td>
+                                            <small class="text-muted">
+                                                {{ order.updated_at.strftime('%Y-%m-%d %H:%M') if order.updated_at else order.created_at.strftime('%Y-%m-%d %H:%M') }}
+                                            </small>
+                                        </td>
+                                        <td>
+                                            <div class="btn-group btn-group-sm">
+                                                <button class="btn btn-outline-primary" 
+                                                        onclick="updateOrderStatus({{ order.id }}, '{{ order.status }}')"
+                                                        title="Update Status">
+                                                    <i class="fas fa-edit"></i>
+                                                </button>
+                                                <a href="{{ url_for('order_detail', order_id=order.id) }}" 
+                                                   class="btn btn-outline-info" title="View Details">
+                                                    <i class="fas fa-eye"></i>
+                                                </a>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Pagination -->
+                        {% if orders.pages > 1 %}
+                        <div class="card-footer">
+                            <nav aria-label="Orders pagination">
+                                <ul class="pagination justify-content-center mb-0">
+                                    {% if orders.has_prev %}
+                                        <li class="page-item">
+                                            <a class="page-link" href="{{ url_for('orders', page=orders.prev_num) }}">
+                                                <i class="fas fa-chevron-left"></i>
+                                            </a>
+                                        </li>
+                                    {% endif %}
+                                    
+                                    {% for page_num in orders.iter_pages() %}
+                                        {% if page_num %}
+                                            {% if page_num != orders.page %}
+                                                <li class="page-item">
+                                                    <a class="page-link" href="{{ url_for('orders', page=page_num) }}">
+                                                        {{ page_num }}
+                                                    </a>
+                                                </li>
+                                            {% else %}
+                                                <li class="page-item active">
+                                                    <span class="page-link">{{ page_num }}</span>
+                                                </li>
+                                            {% endif %}
+                                        {% else %}
+                                            <li class="page-item disabled">
+                                                <span class="page-link">...</span>
+                                            </li>
+                                        {% endif %}
+                                    {% endfor %}
+                                    
+                                    {% if orders.has_next %}
+                                        <li class="page-item">
+                                            <a class="page-link" href="{{ url_for('orders', page=orders.next_num) }}">
+                                                <i class="fas fa-chevron-right"></i>
+                                            </a>
+                                        </li>
+                                    {% endif %}
+                                </ul>
+                            </nav>
+                        </div>
+                        {% endif %}
+                    {% else %}
+                        <div class="text-center py-5">
+                            <i class="fas fa-shopping-cart fa-3x text-muted mb-3"></i>
+                            <h5 class="text-muted">No orders found</h5>
+                            <p class="text-muted">No orders match your current filters.</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Order Status Update Modal -->
+<div class="modal fade" id="orderStatusModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Update Order Status</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="orderStatusForm">
+                    <input type="hidden" id="orderId" name="order_id">
+                    <div class="mb-3">
+                        <label for="newOrderStatus" class="form-label">New Status</label>
+                        <select class="form-select" id="newOrderStatus" required>
+                            <option value="In Progress">In Progress</option>
+                            <option value="Shipped">Shipped</option>
+                            <option value="Delivered">Delivered</option>
+                            <option value="Cancelled">Cancelled</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="orderNotes" class="form-label">Notes (Optional)</label>
+                        <textarea class="form-control" id="orderNotes" rows="3" placeholder="Add notes about this order..."></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="submitOrderStatusUpdate()">Update Status</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.status-in-progress { background-color: #ffc107; color: #000; }
+.status-shipped { background-color: #17a2b8; color: #fff; }
+.status-delivered { background-color: #28a745; color: #fff; }
+.status-cancelled { background-color: #dc3545; color: #fff; }
+.status-processing { background-color: #6c757d; color: #fff; }
+.status-handled { background-color: #007bff; color: #fff; }
+.status-completed { background-color: #28a745; color: #fff; }
+.status-problem { background-color: #dc3545; color: #fff; }
+</style>
+
+<script>
+function updateOrderStatus(orderId, currentStatus) {
+    document.getElementById('orderId').value = orderId;
+    document.getElementById('newOrderStatus').value = currentStatus;
+    
+    const modal = new bootstrap.Modal(document.getElementById('orderStatusModal'));
+    modal.show();
+}
+
+function submitOrderStatusUpdate() {
+    const orderId = document.getElementById('orderId').value;
+    const newStatus = document.getElementById('newOrderStatus').value;
+    const notes = document.getElementById('orderNotes').value;
+    
+    fetch(`/api/orders/${orderId}/status`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            status: newStatus,
+            notes: notes
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.message) {
+            // Close modal
+            const modal = bootstrap.Modal.getInstance(document.getElementById('orderStatusModal'));
+            modal.hide();
+            
+            // Show success message
+            showAlert('Order status updated successfully!', 'success');
+            
+            // Refresh page after a short delay
+            setTimeout(() => {
+                window.location.reload();
+            }, 1000);
+        } else {
+            showAlert('Error updating order status: ' + data.error, 'danger');
+        }
+    })
+    .catch(error => {
+        showAlert('Error updating order status: ' + error, 'danger');
+    });
+}
+
+function refreshOrders() {
+    window.location.reload();
+}
+
+function showAlert(message, type) {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+    alertDiv.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    
+    const container = document.querySelector('.container-fluid');
+    container.insertBefore(alertDiv, container.firstChild);
+    
+    // Auto-hide after 5 seconds
+    setTimeout(() => {
+        if (alertDiv.parentNode) {
+            alertDiv.remove();
+        }
+    }, 5000);
+}
+</script>
+{% endblock %}
