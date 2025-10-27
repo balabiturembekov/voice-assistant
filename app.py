@@ -5,6 +5,7 @@ import logging
 from config import Config
 from models import db, Call, Conversation, Order, CallStatus
 from sqlalchemy import desc
+from afterbuy_client import AfterbuyClient, create_client_from_config
 # ChatGPT removed - using static text
 
 # Configure logging
@@ -170,6 +171,214 @@ def get_consent_prompts(language):
     
     return prompts.get(language, prompts['de'])  # Default to German
 
+def get_order_from_afterbuy(order_id):
+    """
+    Get order data from AfterBuy API
+    
+    Args:
+        order_id: The order ID to look up
+        
+    Returns:
+        Dictionary with order data or None if not found
+    """
+    try:
+        # Create AfterBuy client using config
+        afterbuy_client = AfterbuyClient(
+            partner_id=Config.AFTERBUY_PARTNER_ID,
+            partner_token=Config.AFTERBUY_PARTNER_TOKEN,
+            account_token=Config.AFTERBUY_ACCOUNT_TOKEN,
+            user_id=Config.AFTERBUY_USER_ID,
+            user_password=Config.AFTERBUY_USER_PASSWORD
+        )
+        
+        # Get order data
+        order_data = afterbuy_client.get_order_by_id(order_id)
+        
+        if order_data:
+            logger.info(f"Successfully retrieved order {order_id} from AfterBuy")
+            return order_data
+        else:
+            logger.warning(f"Order {order_id} not found in AfterBuy")
+            return None
+            
+    except Exception as e:
+        logger.error(f"Error retrieving order {order_id} from AfterBuy: {str(e)}")
+        return None
+
+def calculate_production_delivery_dates(order_date_str, country_code='DE'):
+    """
+    Calculate production and delivery dates based on order date and country
+    
+    Args:
+        order_date_str: Order date from AfterBuy (e.g., '18.10.2025 16:27:55')
+        country_code: Country code from AfterBuy (default 'DE')
+        
+    Returns:
+        Dictionary with dates and delivery info
+    """
+    from datetime import datetime, timedelta
+    
+    try:
+        # Parse order date
+        order_date = datetime.strptime(order_date_str.split()[0], '%d.%m.%Y')
+        
+        # Production weeks based on country (from bot_messages.txt)
+        production_weeks = {
+            'TR': (6, 10),   # Turkey: 6-10 weeks
+            'CN': (8, 12),   # China: 8-12 weeks
+            'PL': (4, 8),    # Poland: 4-8 weeks
+            'IT': (4, 8),    # Italy: 4-8 weeks
+            'DE': (8, 12),   # Germany (default): 8-12 weeks
+        }
+        
+        weeks = production_weeks.get(country_code, (8, 12))
+        
+        # Calculate production time
+        production_start = order_date + timedelta(days=7)  # Production starts 1 week after order
+        
+        # Calculate actual dates based on weeks
+        production_min_weeks = weeks[0]
+        production_max_weeks = weeks[1]
+        
+        production_min = production_start + timedelta(weeks=weeks[0])
+        production_max = production_start + timedelta(weeks=weeks[1])
+        
+        # Delivery time (production_max + 1-2 weeks for shipping)
+        delivery_date = production_max + timedelta(weeks=2)
+        
+        # Calculate calendar week
+        def get_calendar_week(date):
+            """Calculate ISO calendar week"""
+            return date.isocalendar()[1]
+        
+        delivery_week = get_calendar_week(delivery_date)
+        year = delivery_date.year
+        
+        return {
+            'order_date': order_date.strftime('%d.%m.%Y'),
+            'order_date_formatted': order_date.strftime('%d.%m.%Y'),
+            'production_start_date': production_start.strftime('%d.%m.%Y'),
+            'production_min_weeks': production_min_weeks,
+            'production_max_weeks': production_max_weeks,
+            'delivery_week': delivery_week,
+            'delivery_year': year,
+            'delivery_date_start': (delivery_date - timedelta(days=3)).strftime('%d.%m.%Y'),
+            'delivery_date_end': (delivery_date + timedelta(days=3)).strftime('%d.%m.%Y'),
+        }
+    except Exception as e:
+        logger.error(f"Error calculating dates: {e}")
+        return {
+            'order_date': order_date_str,
+            'production_start_date': '22.10.2025',
+            'production_min_weeks': 6,
+            'production_max_weeks': 10,
+            'delivery_week': 42,
+            'delivery_year': 2025,
+            'delivery_date_start': '13.10.2025',
+            'delivery_date_end': '19.10.2025',
+        }
+
+def get_goodbye_message(language='de'):
+    """Get consistent goodbye message based on language"""
+    if language == 'de':
+        return "Wir bedanken uns für Ihren Anruf und stehen bei weiteren Fragen zur Verfügung!"
+    else:
+        return "Thank you for calling. We are available for any further questions!"
+
+def format_order_status_for_speech(order_data, language='de'):
+    """
+    Format order status information for speech output
+    
+    Args:
+        order_data: Dictionary with order data from AfterBuy
+        language: Language code ('de' or 'en')
+        
+    Returns:
+        Formatted string for speech
+    """
+    if not order_data:
+        if language == 'de':
+            return "Entschuldigung, ich konnte keine Informationen zu diesem Auftrag finden."
+        else:
+            return "Sorry, I couldn't find any information about this order."
+    
+    # Parse memo for additional info
+    memo_data = {}
+    if 'memo' in order_data and order_data['memo']:
+        from afterbuy_client import AfterbuyClient
+        temp_client = AfterbuyClient('', '', '', '', '')
+        memo_data = temp_client.parse_memo(order_data['memo'])
+    
+    # Get payment info
+    payment_info = order_data.get('payment', {})
+    already_paid = payment_info.get('already_paid', '0,00')
+    full_amount = payment_info.get('full_amount', '0,00')
+    
+    # Get buyer info
+    buyer_info = order_data.get('buyer', {})
+    customer_name = buyer_info.get('first_name', '')
+    country = buyer_info.get('country', 'DE')
+    
+    # Get order date
+    order_date = order_data.get('order_date', '18.10.2025 16:27:55')
+    
+    # Get payment date (when order was processed)
+    payment_date = order_data.get('payment', {}).get('payment_date', order_date)
+    
+    # Calculate production and delivery dates
+    dates_info = calculate_production_delivery_dates(order_date, country)
+    
+    # Format amounts (remove commas for speech)
+    # AfterBuy uses commas as thousand separators, so we need to handle this properly
+    already_paid_clean = already_paid.replace(',', '')
+    full_amount_clean = full_amount.replace(',', '')
+    
+    # Convert to proper format for speech (e.g., 1680 instead of 168000)
+    try:
+        # Parse the original amounts correctly
+        already_paid_parsed = float(already_paid.replace(',', '.'))
+        full_amount_parsed = float(full_amount.replace(',', '.'))
+        
+        # Format for speech (remove decimal if it's .00)
+        already_paid_clean = str(int(already_paid_parsed)) if already_paid_parsed == int(already_paid_parsed) else str(already_paid_parsed)
+        full_amount_clean = str(int(full_amount_parsed)) if full_amount_parsed == int(full_amount_parsed) else str(full_amount_parsed)
+    except:
+        pass
+    
+    if language == 'de':
+        # Format order ID for speech
+        order_id = order_data.get('order_id', 'unbekannt')
+        order_id_formatted = format_order_number_for_speech(order_id)
+        
+        status_text = f"""Ihr Auftrag {order_id_formatted}:
+Sie haben für Ihren Auftrag insgesamt {already_paid_clean} Euro bezahlt.
+Der gesamte Rechnungsbetrag beträgt {full_amount_clean} Euro.
+
+Der Auftrag wurde durch den Kunden {customer_name} erteilt.
+Ihr Auftrag wurde am {dates_info['order_date_formatted']} angenommen und am {dates_info['production_start_date']} an die Produktion übergeben.
+
+Ihre Ware befindet sich derzeit in der Produktion und hat eine voraussichtliche Lieferzeit von {dates_info['production_min_weeks']} bis {dates_info['production_max_weeks']} Wochen.
+
+Wir erwarten die Lieferung in der Kalenderwoche {dates_info['delivery_week']}/{dates_info['delivery_year']}, also in der Woche vom {dates_info['delivery_date_start']} bis {dates_info['delivery_date_end']}.
+
+Wir freuen uns, Ihnen ein hochwertiges Produkt liefern zu dürfen,
+und halten Sie selbstverständlich über den weiteren Verlauf auf dem Laufenden."""
+        
+    else:
+        status_text = f"The status of your order {order_data.get('order_id', 'unknown')} is: "
+        
+        if memo_data.get('amount_value', 0) > 0:
+            status_text += f"{already_paid_clean} Euros have been paid out of {full_amount_clean} Euros total. "
+            if memo_data.get('payment_percent'):
+                status_text += f"This represents a {memo_data['payment_percent']} percent down payment. "
+        
+        if customer_name:
+            status_text += f"The order was placed by {customer_name}. "
+        
+        status_text += "You will receive an email with further details."
+    
+    return status_text
+
 
 @app.route('/webhook/voice', methods=['POST'])
 def handle_incoming_call():
@@ -192,9 +401,10 @@ def handle_incoming_call():
         
         # Use static greeting text
         if language == 'de':
-            greeting = f"Guten Tag! Sie sprechen mit Liza, Ihrem Sprachassistenten von {Config.COMPANY_NAME}. Dieses Gespräch kann zur Verbesserung unseres Services verarbeitet werden. Stimmen Sie der Verarbeitung Ihrer Daten zu?"
+            #greeting = "Hallo, Sie sprechen mit Liza, Ihrem Sprachassistenten. Dürfen wir Ihr Gespräch zur Qualitätsverbesserung verarbeiten?"
+            greeting = "Hallo, mein Name ist Lisa. ich bin Ihr automatischer Servicemitarbeiter. Zur Qualitätssicherung können Gespräche aufgezeichnet werden. Drücken Sie 1, wenn Sie zustimmen, oder 2, wenn Sie der Aufzeichnung nicht zustimmen."
         else:
-            greeting = "Hello! You are speaking with Liza, your voice assistant from JVMOEBEL. This conversation may be processed to improve our services. Do you agree to the processing of your data?"
+            greeting = "Hello, you're speaking with Liza, your voice assistant. May we process your call to improve our service quality?"
         
         # Speak the greeting
         logger.info(f"Using voice: {Config.VOICE_NAME}")
@@ -220,7 +430,7 @@ def handle_incoming_call():
                    voice_engine='neural' if Config.VOICE_NAME.startswith('polly.') else 'standard')
         
         # If no response, say goodbye
-        response.say('Thank you for calling. Goodbye.', language=language, voice=Config.VOICE_NAME)
+        response.say(get_goodbye_message(language), language=language, voice=Config.VOICE_NAME)
         response.hangup()
         
         return Response(str(response), mimetype='text/xml')
@@ -268,7 +478,7 @@ def handle_consent():
             
             # Use static consent response
             if language == 'de':
-                consent_response = "Vielen Dank für Ihre Zustimmung. Ich bin Liza und helfe Ihnen gerne. Wie kann ich Ihnen heute helfen?"
+                consent_response = "Vielen Dank für Ihre Zustimmung. Bitte teilen Sie mir nun mit, wie ich Ihnen behilflich sein kann."
             else:
                 consent_response = "Thank you for your consent. I'm Liza and I'm happy to help you. How can I help you today?"
             response.say(consent_response, voice=Config.VOICE_NAME,
@@ -280,7 +490,7 @@ def handle_consent():
             
             # Ask about order status
             if language == 'de':
-                order_prompt = "Wenn Sie den Status Ihres Artikels erfahren möchten, geben Sie bitte Ihre Bestellnummer über die Tastatur ein. Drücken Sie die Raute-Taste # wenn Sie fertig sind."
+                order_prompt = "Bitte geben Sie jetzt Ihre Bestellnummer ein und drücken Sie die Raute-Taste, wenn Sie fertig sind."
             else:
                 order_prompt = "If you would like to know the status of your item, please enter your order number using the keypad. Press the hash key # when you are finished."
             
@@ -297,24 +507,45 @@ def handle_consent():
             )
             
             # If no response, say goodbye
-            response.say('Thank you for calling. Goodbye.', voice=Config.VOICE_NAME)
+            response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
             response.hangup()
             
         elif dtmf_result == '2':
-            # User declined
-            logger.info(f"User {caller_number} declined data processing")
+            # User declined, but continue anyway
+            logger.info(f"User {caller_number} declined data processing, but continuing")
             
             # Use static consent response
             if language == 'de':
-                consent_response = "Vielen Dank für Ihren Anruf. Ohne Ihre Zustimmung zur Datenverarbeitung können wir leider nicht weiterhelfen. Vielen Dank und einen schönen Tag noch."
+                consent_response = "Danke für Ihren Anruf. Ich helfe Ihnen gerne weiter. Wie kann ich Ihnen behilflich sein?"
             else:
-                consent_response = "Thank you for calling. Without your consent for data processing, we cannot help you further. Thank you and have a nice day."
+                consent_response = "Thank you for calling. I'm happy to help you. How can I help you today?"
             response.say(consent_response, voice=Config.VOICE_NAME,
                         voice_engine='neural' if Config.VOICE_NAME.startswith('polly.') else 'standard')
             
             # Log consent response and update status
-            log_conversation(call.id, 'consent_response', bot_response=consent_response)
-            update_call_status(call.id, CallStatus.COMPLETED)
+            log_conversation(call.id, 'consent_declined_but_continued', bot_response=consent_response)
+            update_call_status(call.id, CallStatus.HANDLED)
+            
+            # Ask about order status (same as if they consented)
+            if language == 'de':
+                order_prompt = "Bitte geben Sie jetzt Ihre Bestellnummer ein und drücken Sie die Raute-Taste, wenn Sie fertig sind."
+            else:
+                order_prompt = "If you would like to know the status of your item, please enter your order number using the keypad. Press the hash key # when you are finished."
+            
+            response.say(order_prompt, voice=Config.VOICE_NAME,
+                        voice_engine='neural' if Config.VOICE_NAME.startswith('polly.') else 'standard')
+            
+            # Gather order number via DTMF (keypad)
+            gather = response.gather(
+                input='dtmf',
+                timeout=30,
+                finishOnKey='#',
+                action='/webhook/order',
+                method='POST'
+            )
+            
+            # If no response, say goodbye
+            response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
             response.hangup()
             
         else:
@@ -344,9 +575,9 @@ def handle_consent():
             
             # If no response, say goodbye
             if language == 'de':
-                response.say('Vielen Dank für Ihren Anruf. Auf Wiedersehen!', voice=Config.VOICE_NAME)
+                response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
             else:
-                response.say('Thank you for calling. Goodbye!', voice=Config.VOICE_NAME)
+                response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
             response.hangup()
         
         return Response(str(response), mimetype='text/xml')
@@ -421,9 +652,9 @@ def handle_order():
                 
                 # If no response, say goodbye
                 if language == 'de':
-                    response.say('Vielen Dank für Ihren Anruf. Auf Wiedersehen!', voice=Config.VOICE_NAME)
+                    response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
                 else:
-                    response.say('Thank you for calling. Goodbye!', voice=Config.VOICE_NAME)
+                    response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
                 response.hangup()
                 
                 return Response(str(response), mimetype='text/xml')
@@ -431,7 +662,7 @@ def handle_order():
             # Valid order number - ask for confirmation
             formatted_number = format_order_number_for_speech(dtmf_result)
             if language == 'de':
-                confirmation_response = f"Sie haben die Bestellnummer {formatted_number} eingegeben. Ist das korrekt? Drücken Sie 1 für Ja oder 2 für Nein."
+                confirmation_response = f"Sie haben die folgende Bestellnummer {formatted_number} eingetippt? Bitte bestätigen Sie durch 1 für Ja oder 2 für Nein."
             else:
                 confirmation_response = f"You have entered order number {formatted_number}. Is this correct? Press 1 for Yes or 2 for No."
             
@@ -452,9 +683,9 @@ def handle_order():
             
             # If no response, say goodbye
             if language == 'de':
-                response.say('Vielen Dank für Ihren Anruf. Auf Wiedersehen!', voice=Config.VOICE_NAME)
+                response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
             else:
-                response.say('Thank you for calling. Goodbye!', voice=Config.VOICE_NAME)
+                response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
             response.hangup()
             
             return Response(str(response), mimetype='text/xml')
@@ -501,25 +732,30 @@ def handle_order():
             
             # If no response, say goodbye
             if language == 'de':
-                response.say('Vielen Dank für Ihren Anruf. Auf Wiedersehen!', voice=Config.VOICE_NAME)
+                response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
             else:
-                response.say('Thank you for calling. Goodbye!', voice=Config.VOICE_NAME)
+                response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
             response.hangup()
             
         else:
-            # No order number provided
-            if language == 'de':
-                no_order_response = "Entschuldigung, ich habe keine Bestellnummer verstanden. Bitte versuchen Sie es erneut oder rufen Sie später an."
-            else:
-                no_order_response = "Sorry, I didn't understand an order number. Please try again or call back later."
+            # No order number provided - transfer to manager
+            logger.info(f"No order number provided by {caller_number}, transferring to manager")
             
-            response.say(no_order_response, voice=Config.VOICE_NAME,
+            if language == 'de':
+                transfer_msg = "Ich konnte keine Bestellnummer verstehen. Ich verbinde Sie jetzt mit einem unserer Mitarbeiter. Einen Moment bitte."
+            else:
+                transfer_msg = "I didn't understand an order number. I'm now connecting you with one of our staff. Please hold."
+            
+            response.say(transfer_msg, voice=Config.VOICE_NAME,
                         voice_engine='neural' if Config.VOICE_NAME.startswith('polly.') else 'standard')
             
-            # Log no order response
-            log_conversation(call.id, 'no_order_response', bot_response=no_order_response)
-            update_call_status(call.id, CallStatus.COMPLETED)
-            response.hangup()
+            # Log and transfer to manager
+            log_conversation(call.id, 'no_order_transfer_to_manager', bot_response=transfer_msg)
+            update_call_status(call.id, CallStatus.HANDLED)
+            
+            # Redirect to manager's phone number
+            manager_phone = "+4973929378421"  # 07392 - 93 78 421
+            response.dial(number=manager_phone, caller_id=caller_number)
         
         return Response(str(response), mimetype='text/xml')
         
@@ -575,14 +811,15 @@ def handle_order_confirm():
             # Log confirmation
             log_conversation(call.id, 'order_confirmed', user_input='1')
             
+            # Get real order data from AfterBuy
+            order_data = get_order_from_afterbuy(order_number)
+            
             # Process confirmed order
             formatted_number = format_order_number_for_speech(order_number)
             if language == 'de':
                 order_response = f"Vielen Dank! Ich habe Ihre Bestellnummer {formatted_number} bestätigt. Ich prüfe den Status für Sie. Bitte warten Sie einen Moment."
-                status_response = f"Der Status Ihrer Bestellung {formatted_number} ist: In Bearbeitung. Sie erhalten eine E-Mail mit weiteren Details. Gibt es noch etwas, womit ich Ihnen helfen kann?"
             else:
                 order_response = f"Thank you! I have confirmed your order number {formatted_number}. I am checking the status for you. Please wait a moment."
-                status_response = f"The status of your order {formatted_number} is: In Progress. You will receive an email with further details. Is there anything else I can help you with?"
             
             response.say(order_response, voice=Config.VOICE_NAME,
                         voice_engine='neural' if Config.VOICE_NAME.startswith('polly.') else 'standard')
@@ -590,13 +827,32 @@ def handle_order_confirm():
             # Log order response
             log_conversation(call.id, 'order_response', bot_response=order_response)
             
-            # Save order to database
-            order = Order(
-                call_id=call.id,
-                order_number=order_number,
-                status="In Progress",
-                notes="Order status checked via voice assistant - confirmed by customer"
-            )
+            # Get real status from AfterBuy
+            if order_data:
+                status_response = format_order_status_for_speech(order_data, language)
+                
+                # Save order to database with real data
+                order = Order(
+                    call_id=call.id,
+                    order_number=order_number,
+                    status="Found in AfterBuy",
+                    notes=f"Order found: {order_data.get('invoice_number', 'N/A')} - {order_data.get('buyer', {}).get('first_name', 'Unknown')} {order_data.get('buyer', {}).get('last_name', '')}"
+                )
+            else:
+                # Order not found in AfterBuy
+                if language == 'de':
+                    status_response = f"Entschuldigung, ich konnte keinen Auftrag mit der Nummer {formatted_number} in unserem System finden. Bitte überprüfen Sie die Nummer oder kontaktieren Sie unseren Kundenservice."
+                else:
+                    status_response = f"Sorry, I couldn't find an order with number {formatted_number} in our system. Please check the number or contact our customer service."
+                
+                # Save order to database as not found
+                order = Order(
+                    call_id=call.id,
+                    order_number=order_number,
+                    status="Not Found",
+                    notes="Order not found in AfterBuy system"
+                )
+            
             db.session.add(order)
             db.session.commit()
             
@@ -609,26 +865,28 @@ def handle_order_confirm():
             # Log status response
             log_conversation(call.id, 'status_response', bot_response=status_response)
             
-            # Ask if they need more help
+            # Ask if they need more help (voice message option)
             if language == 'de':
-                help_prompt = "Können Sie mir noch bei etwas anderem helfen?"
+                help_prompt = "Wenn Sie noch Fragen haben, drücken Sie 1 um eine Nachricht zu hinterlassen, oder drücken Sie 2 um mit einem Mitarbeiter verbunden zu werden."
             else:
-                help_prompt = "Can I help you with anything else?"
+                help_prompt = "If you have any questions, press 1 to leave a message, or press 2 to speak to a staff member."
+            
+            response.say(help_prompt, voice=Config.VOICE_NAME,
+                        voice_engine='neural' if Config.VOICE_NAME.startswith('polly.') else 'standard')
             
             gather = response.gather(
-                input='speech',
-                timeout=5,
-                speech_timeout='auto',
-                language=language,
-                action='/webhook/help',
+                input='dtmf',
+                timeout=10,
+                num_digits=1,
+                action='/webhook/voice_message',
                 method='POST'
             )
             
             # If no response, say goodbye
             if language == 'de':
-                response.say('Vielen Dank für Ihren Anruf. Auf Wiedersehen!', voice=Config.VOICE_NAME)
+                response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
             else:
-                response.say('Thank you for calling. Goodbye!', voice=Config.VOICE_NAME)
+                response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
             response.hangup()
             
         elif confirmation == '2':  # No - not confirmed
@@ -660,9 +918,9 @@ def handle_order_confirm():
             
             # If no response, say goodbye
             if language == 'de':
-                response.say('Vielen Dank für Ihren Anruf. Auf Wiedersehen!', voice=Config.VOICE_NAME)
+                response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
             else:
-                response.say('Thank you for calling. Goodbye!', voice=Config.VOICE_NAME)
+                response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
             response.hangup()
             
         else:  # Invalid confirmation
@@ -695,9 +953,9 @@ def handle_order_confirm():
             
             # If no response, say goodbye
             if language == 'de':
-                response.say('Vielen Dank für Ihren Anruf. Auf Wiedersehen!', voice=Config.VOICE_NAME)
+                response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
             else:
-                response.say('Thank you for calling. Goodbye!', voice=Config.VOICE_NAME)
+                response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
             response.hangup()
         
         return Response(str(response), mimetype='text/xml')
@@ -748,17 +1006,17 @@ def handle_help():
             
             # If no response, say goodbye
             if language == 'de':
-                response.say('Vielen Dank für Ihren Anruf. Auf Wiedersehen!', voice=Config.VOICE_NAME)
+                response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
             else:
-                response.say('Thank you for calling. Goodbye!', voice=Config.VOICE_NAME)
+                response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
             response.hangup()
             
         else:
             # They don't need more help
             if language == 'de':
-                goodbye_response = "Vielen Dank für Ihren Anruf. Auf Wiedersehen!"
+                goodbye_response = get_goodbye_message(language)
             else:
-                goodbye_response = "Thank you for calling. Goodbye!"
+                goodbye_response = get_goodbye_message(language)
             
             response.say(goodbye_response, voice=Config.VOICE_NAME,
                         voice_engine='neural' if Config.VOICE_NAME.startswith('polly.') else 'standard')
@@ -769,7 +1027,7 @@ def handle_help():
     except Exception as e:
         logger.error(f"Error handling help: {str(e)}")
         response = VoiceResponse()
-        response.say('Thank you for calling. Goodbye!', voice=Config.VOICE_NAME)
+        response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
         response.hangup()
         return Response(str(response), mimetype='text/xml')
 
@@ -920,6 +1178,241 @@ def order_detail(order_id):
     """Order detail page"""
     order = Order.query.get_or_404(order_id)
     return render_template('order_detail.html', order=order)
+
+@app.route('/webhook/voice_message', methods=['POST'])
+def handle_voice_message():
+    """Handle voice message choice (1 = leave message, 2 = end call)"""
+    try:
+        digits = request.form.get('Digits', '').strip()
+        caller_number = request.form.get('From', '')
+        call_sid = request.form.get('CallSid', '')
+        
+        logger.info(f"Voice message choice from {caller_number}: {digits}")
+        
+        # Get call record
+        call = Call.query.filter_by(call_sid=call_sid).first()
+        if not call:
+            logger.error(f"Call record not found for {call_sid}")
+            response = VoiceResponse()
+            response.say('Sorry, there was an error. Please try again later.', voice=Config.VOICE_NAME)
+            response.hangup()
+            return Response(str(response), mimetype='text/xml')
+        
+        language = detect_language(caller_number)
+        response = VoiceResponse()
+        
+        if digits == '1':  # User wants to leave a voice message
+            logger.info(f"User {caller_number} wants to leave a voice message")
+            
+            if language == 'de':
+                message_prompt = "Bitte hinterlassen Sie nach dem Signalton eine Nachricht. Sie erhalten innerhalb von 24 Stunden eine Antwort per E-Mail."
+            else:
+                message_prompt = "Please leave a message after the tone. You will receive a reply by email within 24 hours."
+            
+            response.say(message_prompt, voice=Config.VOICE_NAME,
+                        voice_engine='neural' if Config.VOICE_NAME.startswith('polly.') else 'standard')
+            
+            # Record the message with transcription
+            response.record(
+                maxLength=60,  # 60 seconds max
+                action='/webhook/recorded',
+                method='POST',
+                recordingStatusCallback='/webhook/recording_status',
+                transcribe=True,  # Enable transcription
+                transcribeCallback='/webhook/transcription'  # Callback for transcription
+            )
+            
+            # Log action
+            log_conversation(call.id, 'voice_message_request', bot_response=message_prompt)
+            
+        elif digits == '2':  # User wants to speak to manager
+            logger.info(f"User {caller_number} wants to speak to manager")
+            
+            if language == 'de':
+                transfer_msg = "Ich verbinde Sie jetzt mit einem unserer Mitarbeiter. Einen Moment bitte."
+            else:
+                transfer_msg = "I'm now connecting you with one of our staff. Please hold."
+            
+            response.say(transfer_msg, voice=Config.VOICE_NAME,
+                        voice_engine='neural' if Config.VOICE_NAME.startswith('polly.') else 'standard')
+            
+            # Redirect to manager's phone number
+            manager_phone = "+4973929378421"  # 07392 - 93 78 421
+            response.dial(number=manager_phone, caller_id=caller_number)
+            
+            # Log action
+            log_conversation(call.id, 'transfer_to_manager', bot_response=transfer_msg)
+            
+        else:  # Invalid choice
+            logger.warning(f"Invalid voice message choice '{digits}' from {caller_number}")
+            
+            if language == 'de':
+                error_msg = "Entschuldigung, ich habe Ihre Antwort nicht verstanden. Wenn Sie noch Fragen haben, drücken Sie 1. Um mit einem Mitarbeiter verbunden zu werden, drücken Sie 2."
+            else:
+                error_msg = "Sorry, I didn't understand your response. If you have questions, press 1. To speak to a staff member, press 2."
+            
+            response.say(error_msg, voice=Config.VOICE_NAME,
+                        voice_engine='neural' if Config.VOICE_NAME.startswith('polly.') else 'standard')
+            
+            gather = response.gather(
+                input='dtmf',
+                timeout=10,
+                num_digits=1,
+                action='/webhook/voice_message',
+                method='POST'
+            )
+            
+            # Fallback
+            if language == 'de':
+                response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
+            else:
+                response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
+            response.hangup()
+        
+        return Response(str(response), mimetype='text/xml')
+        
+    except Exception as e:
+        logger.error(f"Error handling voice message: {str(e)}")
+        response = VoiceResponse()
+        response.say('Sorry, there was an error. Please try again later.', voice=Config.VOICE_NAME)
+        response.hangup()
+        return Response(str(response), mimetype='text/xml')
+
+@app.route('/webhook/recorded', methods=['POST'])
+def handle_recorded():
+    """Handle recorded voice message"""
+    try:
+        recording_url = request.form.get('RecordingUrl', '')
+        recording_transcription = request.form.get('RecordingTranscription', '') or request.form.get('TranscriptionText', '')
+        caller_number = request.form.get('From', '')
+        call_sid = request.form.get('CallSid', '')
+        
+        logger.info(f"Voice message recorded from {caller_number}")
+        logger.info(f"Recording URL: {recording_url}")
+        logger.info(f"Recording Transcription: {recording_transcription}")
+        
+        # Get call record
+        call = Call.query.filter_by(call_sid=call_sid).first()
+        if call:
+            # Save recording transcription text to conversation
+            language = detect_language(caller_number)
+            
+            if language == 'de':
+                thank_you = "Vielen Dank für Ihre Nachricht. Wir melden uns innerhalb von 24 Stunden bei Ihnen. Auf Wiedersehen!"
+            else:
+                thank_you = "Thank you for your message. We will contact you within 24 hours. Goodbye!"
+            
+            # Save the transcription text, not just URL
+            transcription_text = recording_transcription if recording_transcription else f"Voice message recorded (URL: {recording_url})"
+            
+            log_conversation(call.id, 'voice_message_recorded', 
+                           user_input=transcription_text,
+                           bot_response=thank_you)
+            
+            # Also save to order notes
+            orders = Order.query.filter_by(call_id=call.id).order_by(Order.created_at.desc()).all()
+            if orders:
+                order = orders[0]
+                if order.notes:
+                    order.notes += f"\n\nVoice message: {transcription_text}"
+                else:
+                    order.notes = f"Voice message: {transcription_text}"
+                db.session.commit()
+            
+            update_call_status(call.id, CallStatus.COMPLETED)
+            
+            response = VoiceResponse()
+            response.say(thank_you, voice=Config.VOICE_NAME,
+                        voice_engine='neural' if Config.VOICE_NAME.startswith('polly.') else 'standard')
+            response.hangup()
+        else:
+            response = VoiceResponse()
+            response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
+            response.hangup()
+        
+        return Response(str(response), mimetype='text/xml')
+        
+    except Exception as e:
+        logger.error(f"Error handling recorded message: {str(e)}")
+        response = VoiceResponse()
+        response.say('Thank you for your message. Goodbye!', voice=Config.VOICE_NAME)
+        response.hangup()
+        return Response(str(response), mimetype='text/xml')
+
+@app.route('/webhook/transcription', methods=['POST'])
+def handle_transcription():
+    """Handle transcription callback from Twilio"""
+    try:
+        transcription_text = request.form.get('TranscriptionText', '')
+        transcription_status = request.form.get('TranscriptionStatus', '')
+        call_sid = request.form.get('CallSid', '')
+        recording_sid = request.form.get('RecordingSid', '')
+        
+        logger.info(f"Transcription received: Status={transcription_status}, Text='{transcription_text[:100]}...'")
+        
+        # Get call record
+        call = Call.query.filter_by(call_sid=call_sid).first()
+        if call and transcription_text:
+            # Update the conversation with transcription text
+            conversations = Conversation.query.filter_by(
+                call_id=call.id, 
+                step='voice_message_recorded'
+            ).order_by(Conversation.timestamp.desc()).all()
+            
+            if conversations:
+                conversation = conversations[0]
+                conversation.user_input = transcription_text
+                db.session.commit()
+                logger.info(f"Updated conversation {conversation.id} with transcription text")
+            
+            # Also update order notes
+            orders = Order.query.filter_by(call_id=call.id).order_by(Order.created_at.desc()).all()
+            if orders:
+                order = orders[0]
+                if order.notes:
+                    order.notes = order.notes.replace(
+                        "Voice message: Voice message recorded (URL:",
+                        f"Voice message transcription: {transcription_text}"
+                    )
+                else:
+                    order.notes = f"Voice message transcription: {transcription_text}"
+                db.session.commit()
+        
+        return Response(status=200)
+        
+    except Exception as e:
+        logger.error(f"Error handling transcription: {str(e)}")
+        return Response(status=500)
+
+@app.route('/webhook/recording_status', methods=['POST'])
+def handle_recording_status():
+    """Handle recording status callback"""
+    try:
+        recording_url = request.form.get('RecordingUrl', '')
+        recording_sid = request.form.get('RecordingSid', '')
+        recording_status = request.form.get('RecordingStatus', '')
+        call_sid = request.form.get('CallSid', '')
+        
+        logger.info(f"Recording status: {recording_status}, URL: {recording_url}")
+        
+        # Get call record and save recording info
+        call = Call.query.filter_by(call_sid=call_sid).first()
+        if call:
+            # Update order notes with recording info
+            orders = Order.query.filter_by(call_id=call.id).order_by(Order.created_at.desc()).all()
+            if orders:
+                order = orders[0]
+                if order.notes:
+                    order.notes += f"\nVoice message URL: {recording_url}"
+                else:
+                    order.notes = f"Voice message URL: {recording_url}"
+                db.session.commit()
+        
+        return Response(status=200)
+        
+    except Exception as e:
+        logger.error(f"Error handling recording status: {str(e)}")
+        return Response(status=500)
 
 @app.route('/api/health', methods=['GET'])
 def api_health():
