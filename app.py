@@ -1,14 +1,17 @@
-import config
-from flask import Flask, request, Response, render_template, url_for
+from flask import Flask, request, Response, render_template
 from twilio.twiml.voice_response import VoiceResponse
 import logging
 from config import Config
 from models import db, Call, Conversation, Order, CallStatus
 from sqlalchemy import desc
-from afterbuy_client import AfterbuyClient, create_client_from_config
-# ChatGPT removed - using static text
+from afterbuy_client import AfterbuyClient
+from services import (
+    detect_language, get_greeting_message, 
+    format_order_number_for_speech, 
+    get_goodbye_message,
+)
 
-# Configure logging
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -18,41 +21,6 @@ app.config.from_object(Config)
 # Initialize database
 db.init_app(app)
 
-
-# Language detection based on caller's country or phone number
-def detect_language(caller_number):
-    """
-    Detect language based on caller's phone number
-    Default to German, English for US/UK numbers
-    """
-    # Remove + and spaces from phone number
-    clean_number = caller_number.replace('+', '').replace(' ', '')
-    
-    # Simple country code detection
-    if clean_number.startswith('1'):  # US/Canada
-        return 'en'
-    elif clean_number.startswith('44'):  # UK
-        return 'en'
-    else:  # Default to German for all other numbers
-        return 'de'
-
-def get_greeting_message(language):
-    """Get the appropriate greeting message based on language"""
-    messages = {
-        'de': f"""Guten Tag!
-Sie sprechen mit einem automatischen Sprachassistenten von {Config.COMPANY_NAME}.
-Dieses Gespräch kann zur Verbesserung unseres Services verarbeitet werden.
-Weitere Informationen zum Datenschutz finden Sie unter {Config.WEBSITE_URL} oder erhalten Sie auf Wunsch von einem Mitarbeiter.
-Stimmen Sie der Verarbeitung Ihrer Daten zu?""",
-        
-        'en': f"""Hello!
-You are speaking with an automated voice assistant from {Config.COMPANY_NAME}.
-This conversation may be processed to improve our services.
-You can find more information about data protection at {Config.WEBSITE_URL} or request it from one of our staff.
-Do you agree to the processing of your data?"""
-    }
-    
-    return messages.get(language, messages['de'])  # Default to German
 
 def create_or_get_call(call_sid, phone_number, language):
     """Create or get existing call record"""
@@ -89,14 +57,6 @@ def update_call_status(call_id, status):
         db.session.commit()
         logger.info(f"Updated call {call_id} status to {status.value}")
 
-def format_order_number_for_speech(order_number):
-    """Format order number for speech - pronounce each digit separately"""
-    if not order_number:
-        return order_number
-    
-    # Separate each digit with spaces - no SSML tags
-    digits = ' '.join(list(str(order_number)))
-    return digits
 
 def validate_order_number(order_text, language='de'):
     """Validate if the input looks like a real order number"""
@@ -278,12 +238,6 @@ def calculate_production_delivery_dates(order_date_str, country_code='DE'):
             'delivery_date_end': '19.10.2025',
         }
 
-def get_goodbye_message(language='de'):
-    """Get consistent goodbye message based on language"""
-    if language == 'de':
-        return "Wir bedanken uns für Ihren Anruf und stehen bei weiteren Fragen zur Verfügung!"
-    else:
-        return "Thank you for calling. We are available for any further questions!"
 
 def format_order_status_for_speech(order_data, language='de'):
     """
@@ -402,9 +356,9 @@ def handle_incoming_call():
         # Use static greeting text
         if language == 'de':
             #greeting = "Hallo, Sie sprechen mit Liza, Ihrem Sprachassistenten. Dürfen wir Ihr Gespräch zur Qualitätsverbesserung verarbeiten?"
-            greeting = "Hallo, mein Name ist Lisa. ich bin Ihr automatischer Servicemitarbeiter. Zur Qualitätssicherung können Gespräche aufgezeichnet werden. Drücken Sie 1, wenn Sie zustimmen, oder 2, wenn Sie der Aufzeichnung nicht zustimmen."
+            greeting = get_greeting_message(language)
         else:
-            greeting = "Hello, you're speaking with Liza, your voice assistant. May we process your call to improve our service quality?"
+            greeting = get_greeting_message(language)
         
         # Speak the greeting
         logger.info(f"Using voice: {Config.VOICE_NAME}")
