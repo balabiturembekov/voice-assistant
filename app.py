@@ -1,6 +1,7 @@
 from flask import Flask, request, Response, render_template
 from twilio.twiml.voice_response import VoiceResponse
 import logging
+import re
 from config import Config
 from models import db, Call, Conversation, Order, CallStatus
 from sqlalchemy import desc
@@ -16,6 +17,7 @@ from services import (
     check_delivery_overdue,
     get_overdue_delivery_message,
     get_delivery_status_message,
+    send_voice_message_email,
 )
 
 
@@ -31,37 +33,67 @@ db.init_app(app)
 
 def create_or_get_call(call_sid, phone_number, language):
     """Create or get existing call record"""
+    if not call_sid:
+        logger.error("create_or_get_call called with empty call_sid")
+        raise ValueError("call_sid cannot be empty")
+
     call = Call.query.filter_by(call_sid=call_sid).first()
     if not call:
         call = Call(
             call_sid=call_sid,
-            phone_number=phone_number,
-            language=language,
+            phone_number=phone_number or "",
+            language=language or "de",
             status=CallStatus.PROCESSING,
         )
-        db.session.add(call)
-        db.session.commit()
-        logger.info(f"Created new call record: {call_sid}")
+        try:
+            db.session.add(call)
+            db.session.commit()
+            logger.info(f"Created new call record: {call_sid}")
+        except Exception as e:
+            logger.error(f"Error creating call record: {str(e)}")
+            db.session.rollback()
+            # Try to get existing call again in case of race condition
+            call = Call.query.filter_by(call_sid=call_sid).first()
+            if not call:
+                raise
     return call
 
 
 def log_conversation(call_id, step, user_input=None, bot_response=None):
     """Log conversation step"""
+    if not call_id:
+        logger.error(f"log_conversation called with empty call_id for step: {step}")
+        return
+
     conversation = Conversation(
         call_id=call_id, step=step, user_input=user_input, bot_response=bot_response
     )
-    db.session.add(conversation)
-    db.session.commit()
-    logger.info(f"Logged conversation: {step}")
+    try:
+        db.session.add(conversation)
+        db.session.commit()
+        logger.info(f"Logged conversation: {step}")
+    except Exception as e:
+        logger.error(f"Error logging conversation: {str(e)}, step: {step}")
+        db.session.rollback()
+        # Continue execution even if logging fails
 
 
 def update_call_status(call_id, status):
     """Update call status"""
+    if not call_id:
+        logger.error("update_call_status called with empty call_id")
+        return
+
     call = Call.query.get(call_id)
     if call:
-        call.status = status
-        db.session.commit()
-        logger.info(f"Updated call {call_id} status to {status.value}")
+        try:
+            call.status = status
+            db.session.commit()
+            logger.info(f"Updated call {call_id} status to {status.value}")
+        except Exception as e:
+            logger.error(f"Error updating call status: {str(e)}, call_id: {call_id}")
+            db.session.rollback()
+            # Continue execution even if update fails
 
 
 def validate_order_number(order_text, language="de"):
@@ -204,12 +236,12 @@ def get_consent_prompts(language):
     return prompts.get(language, prompts["de"])  # Default to German
 
 
-def get_order_from_afterbuy(order_id):
+def get_order_from_afterbuy(order_number):
     """
-    Get order data from AfterBuy API
+    Get order data from AfterBuy API by Rechnungsnummer (InvoiceNumber) or OrderID
 
     Args:
-        order_id: The order ID to look up
+        order_number: The invoice number (Rechnungsnummer) or order ID to look up
 
     Returns:
         Dictionary with order data or None if not found
@@ -224,18 +256,31 @@ def get_order_from_afterbuy(order_id):
             user_password=Config.AFTERBUY_USER_PASSWORD,
         )
 
-        # Get order data
-        order_data = afterbuy_client.get_order_by_id(order_id)
+        # First try to find by InvoiceNumber (Rechnungsnummer)
+        order_data = afterbuy_client.get_order_by_invoice_number(order_number)
 
         if order_data:
-            logger.info(f"Successfully retrieved order {order_id} from AfterBuy")
+            logger.info(
+                f"Successfully retrieved order by Rechnungsnummer {order_number} from AfterBuy"
+            )
+            return order_data
+
+        # If not found, try by OrderID
+        order_data = afterbuy_client.get_order_by_id(order_number)
+
+        if order_data:
+            logger.info(
+                f"Successfully retrieved order by OrderID {order_number} from AfterBuy"
+            )
             return order_data
         else:
-            logger.warning(f"Order {order_id} not found in AfterBuy")
+            logger.warning(
+                f"Order {order_number} not found in AfterBuy (tried both Rechnungsnummer and OrderID)"
+            )
             return None
 
     except Exception as e:
-        logger.error(f"Error retrieving order {order_id} from AfterBuy: {str(e)}")
+        logger.error(f"Error retrieving order {order_number} from AfterBuy: {str(e)}")
         return None
 
 
@@ -253,8 +298,11 @@ def calculate_production_delivery_dates(order_date_str, country_code="DE"):
     from datetime import datetime, timedelta
 
     try:
-        # Parse order date
-        order_date = datetime.strptime(order_date_str.split()[0], "%d.%m.%Y")
+        # Parse order date - handle both with and without time
+        date_part = (
+            order_date_str.split()[0] if " " in order_date_str else order_date_str
+        )
+        order_date = datetime.strptime(date_part, "%d.%m.%Y")
 
         # Production weeks based on country (from bot_messages.txt)
         production_weeks = {
@@ -310,8 +358,13 @@ def calculate_production_delivery_dates(order_date_str, country_code="DE"):
         }
     except Exception as e:
         logger.error(f"Error calculating dates: {e}")
+        # Return fallback dates with all required fields including promised_delivery_date
+        from datetime import datetime, timedelta
+
+        fallback_date = datetime(2025, 10, 22)
         return {
             "order_date": order_date_str,
+            "order_date_formatted": "22.10.2025",
             "production_start_date": "22.10.2025",
             "production_min_weeks": 6,
             "production_max_weeks": 10,
@@ -319,6 +372,9 @@ def calculate_production_delivery_dates(order_date_str, country_code="DE"):
             "delivery_year": 2025,
             "delivery_date_start": "13.10.2025",
             "delivery_date_end": "19.10.2025",
+            "promised_delivery_date": fallback_date.strftime(
+                "%Y-%m-%d"
+            ),  # Required field
         }
 
 
@@ -367,7 +423,8 @@ def format_order_status_for_speech(order_data, language="de", dates_info=None):
     if dates_info is None:
         dates_info = calculate_production_delivery_dates(order_date, country)
         # Add promised delivery date to order_data for overdue checking
-        order_data["promised_delivery_date"] = dates_info["promised_delivery_date"]
+        if dates_info and "promised_delivery_date" in dates_info:
+            order_data["promised_delivery_date"] = dates_info["promised_delivery_date"]
 
     # Format amounts (remove commas for speech)
     # AfterBuy uses commas as thousand separators, so we need to handle this properly
@@ -391,7 +448,10 @@ def format_order_status_for_speech(order_data, language="de", dates_info=None):
             if full_amount_parsed == int(full_amount_parsed)
             else str(full_amount_parsed)
         )
-    except:
+    except (ValueError, TypeError) as e:
+        logger.warning(
+            f"Error parsing payment amounts: {e}, already_paid={already_paid}, full_amount={full_amount}"
+        )
         pass
 
     if language == "de":
@@ -399,16 +459,33 @@ def format_order_status_for_speech(order_data, language="de", dates_info=None):
         order_id = order_data.get("order_id", "unbekannt")
         order_id_formatted = format_order_number_for_speech(order_id)
 
+        # Safely get dates_info values with fallbacks
+        if not dates_info:
+            logger.error(
+                "dates_info is None or empty in format_order_status_for_speech"
+            )
+            dates_info = {}
+        order_date_formatted = dates_info.get(
+            "order_date_formatted", dates_info.get("order_date", "N/A")
+        )
+        production_start_date = dates_info.get("production_start_date", "N/A")
+        production_min_weeks = dates_info.get("production_min_weeks", 6)
+        production_max_weeks = dates_info.get("production_max_weeks", 10)
+        delivery_week = dates_info.get("delivery_week", 42)
+        delivery_year = dates_info.get("delivery_year", 2025)
+        delivery_date_start = dates_info.get("delivery_date_start", "N/A")
+        delivery_date_end = dates_info.get("delivery_date_end", "N/A")
+
         status_text = f"""Ihr Auftrag {order_id_formatted}:
 Sie haben für Ihren Auftrag insgesamt {already_paid_clean} Euro.
 Der gesamte Rechnungsbetrag beträgt {full_amount_clean} Euro.
 
 Der Auftrag wurde durch den Kunden {customer_name} erteilt.
-Ihr Auftrag wurde am {dates_info['order_date_formatted']} angenommen und am {dates_info['production_start_date']} an die Produktion übergeben.
+Ihr Auftrag wurde am {order_date_formatted} angenommen und am {production_start_date} an die Produktion übergeben.
 
-Ihre Ware befindet sich derzeit in der Produktion und hat eine voraussichtliche Lieferzeit von {dates_info['production_min_weeks']} bis {dates_info['production_max_weeks']} Wochen.
+Ihre Ware befindet sich derzeit in der Produktion und hat eine voraussichtliche Lieferzeit von {production_min_weeks} bis {production_max_weeks} Wochen.
 
-Wir erwarten die Lieferung in der Kalenderwoche {dates_info['delivery_week']}/{dates_info['delivery_year']}, also in der Woche vom {dates_info['delivery_date_start']} bis {dates_info['delivery_date_end']}.
+Wir erwarten die Lieferung in der Kalenderwoche {delivery_week}/{delivery_year}, also in der Woche vom {delivery_date_start} bis {delivery_date_end}.
 
 Wir freuen uns, Ihnen ein hochwertiges Produkt liefern zu dürfen,
 und halten Sie selbstverständlich über den weiteren Verlauf auf dem Laufenden."""
@@ -790,7 +867,7 @@ def handle_order_availability():
             )
 
             if language == "de":
-                invalid_response = "Entschuldigung, ich habe Ihre Antwort nicht verstanden. Haben Sie eine Bestellnummer? Drücken Sie die 1 für Ja oder die 2 für Nein."
+                invalid_response = "Entschuldigung, ich habe Ihre Antwort nicht verstanden. Haben Sie eine Rechnungsnummer? Drücken Sie die 1 für Ja oder die 2 für Nein."
             else:
                 invalid_response = "Sorry, I didn't understand your response. Do you have an order number? Press 1 for Yes or 2 for No."
 
@@ -877,7 +954,7 @@ def handle_order():
                 )
 
                 if language == "de":
-                    invalid_response = f"Entschuldigung, ich habe '{dtmf_result}' nicht als gültige Bestellnummer erkannt. Bitte geben Sie Ihre Bestellnummer erneut über die Tastatur ein."
+                    invalid_response = f"Entschuldigung, ich habe '{dtmf_result}' nicht als gültige Rechnungsnummer erkannt. Bitte geben Sie Ihre Rechnungsnummer erneut über die Tastatur ein."
                 else:
                     invalid_response = f"Sorry, I didn't recognize '{dtmf_result}' as a valid order number. Please enter your order number again using the keypad."
 
@@ -898,7 +975,7 @@ def handle_order():
 
                 # Ask for order number again
                 if language == "de":
-                    retry_prompt = "Bitte geben Sie Ihre Bestellnummer erneut über die Tastatur ein. Drücken Sie die Raute-Taste # wenn Sie fertig sind."
+                    retry_prompt = "Bitte geben Sie Ihre Rechnungsnummer erneut über die Tastatur ein. Drücken Sie die Raute-Taste # wenn Sie fertig sind."
                 else:
                     retry_prompt = "Please enter your order number again using the keypad. Press the hash key # when you are finished."
 
@@ -922,7 +999,7 @@ def handle_order():
             # Valid order number - ask for confirmation
             formatted_number = format_order_number_for_speech(dtmf_result)
             if language == "de":
-                confirmation_response = f"Sie haben die folgende Bestellnummer {formatted_number} eingetippt? Bitte bestätigen Sie durch 1 für Ja oder 2 für Nein."
+                confirmation_response = f"Sie haben die folgende Rechnungsnummer {formatted_number} eingetippt? Bitte bestätigen Sie durch 1 für Ja oder 2 für Nein."
             else:
                 confirmation_response = f"You have entered order number {formatted_number}. Is this correct? Press 1 for Yes or 2 for No."
 
@@ -1045,6 +1122,17 @@ def handle_order_confirm():
             return Response(str(response), mimetype="text/xml")
 
         order_number = last_conversation.user_input
+        if not order_number:
+            logger.error(f"Order number is empty for call {call_sid}")
+            response = VoiceResponse()
+            if language == "de":
+                error_msg = "Entschuldigung, ich konnte die Rechnungsnummer nicht finden. Bitte versuchen Sie es erneut."
+            else:
+                error_msg = "Sorry, I couldn't find the order number. Please try again."
+            response.say(error_msg, voice=Config.VOICE_NAME)
+            response.hangup()
+            return Response(str(response), mimetype="text/xml")
+
         response = VoiceResponse()
 
         if confirmation == "1":  # Yes - confirmed
@@ -1059,7 +1147,7 @@ def handle_order_confirm():
             # Process confirmed order
             formatted_number = format_order_number_for_speech(order_number)
             if language == "de":
-                order_response = f"Vielen Dank! Ich habe Ihre Bestellnummer {formatted_number} bestätigt. Ich prüfe den Status für Sie. Bitte warten Sie einen Moment."
+                order_response = f"Vielen Dank! Ich habe Ihre Rechnungsnummer {formatted_number} bestätigt. Ich prüfe den Status für Sie. Bitte warten Sie einen Moment."
             else:
                 order_response = f"Thank you! I have confirmed your order number {formatted_number}. I am checking the status for you. Please wait a moment."
 
@@ -1077,14 +1165,23 @@ def handle_order_confirm():
             # Get real status from AfterBuy
             if order_data:
                 # Calculate production and delivery dates FIRST
-                order_date = order_data.get("order_date", "18.10.2025 16:27:55")
+                order_date = order_data.get("order_date")
+                if not order_date:
+                    logger.error(f"Order date is missing for order {order_number}")
+                    order_date = "18.10.2025 16:27:55"  # Fallback default
+
                 country = order_data.get("buyer", {}).get("country", "DE")
                 dates_info = calculate_production_delivery_dates(order_date, country)
 
                 # Add promised delivery date to order_data for overdue checking
-                order_data["promised_delivery_date"] = dates_info[
-                    "promised_delivery_date"
-                ]
+                if dates_info and "promised_delivery_date" in dates_info:
+                    order_data["promised_delivery_date"] = dates_info[
+                        "promised_delivery_date"
+                    ]
+                else:
+                    logger.warning(
+                        f"promised_delivery_date not found in dates_info for order {order_number}"
+                    )
 
                 # Check if delivery is overdue
                 if check_delivery_overdue(order_data):
@@ -1117,9 +1214,15 @@ def handle_order_confirm():
 
                     promised_date = None
                     if order_data.get("promised_delivery_date"):
-                        promised_date = datetime.strptime(
-                            order_data.get("promised_delivery_date"), "%Y-%m-%d"
-                        ).date()
+                        try:
+                            promised_date = datetime.strptime(
+                                order_data.get("promised_delivery_date"), "%Y-%m-%d"
+                            ).date()
+                        except (ValueError, TypeError) as e:
+                            logger.error(
+                                f"Error parsing promised_delivery_date: {e}, value: {order_data.get('promised_delivery_date')}"
+                            )
+                            promised_date = None
 
                     order = Order(
                         call_id=call.id,
@@ -1128,8 +1231,15 @@ def handle_order_confirm():
                         notes=f"Order found: {order_data.get('invoice_number', 'N/A')} - Delivery overdue, transferred to manager",
                         promised_delivery_date=promised_date,
                     )
-                    db.session.add(order)
-                    db.session.commit()
+                    try:
+                        db.session.add(order)
+                        db.session.commit()
+                    except Exception as e:
+                        logger.error(
+                            f"Error saving overdue order to database: {str(e)}"
+                        )
+                        db.session.rollback()
+                        # Continue execution even if database save fails
 
                     # Redirect to manager's phone number
                     manager_phone = "+4973929378421"  # 07392 - 93 78 421
@@ -1147,15 +1257,21 @@ def handle_order_confirm():
 
                     promised_date = None
                     if order_data.get("promised_delivery_date"):
-                        promised_date = datetime.strptime(
-                            order_data.get("promised_delivery_date"), "%Y-%m-%d"
-                        ).date()
+                        try:
+                            promised_date = datetime.strptime(
+                                order_data.get("promised_delivery_date"), "%Y-%m-%d"
+                            ).date()
+                        except (ValueError, TypeError) as e:
+                            logger.error(
+                                f"Error parsing promised_delivery_date: {e}, value: {order_data.get('promised_delivery_date')}"
+                            )
+                            promised_date = None
 
                     order = Order(
                         call_id=call.id,
                         order_number=order_number,
                         status="Found in AfterBuy",
-                        notes=f"Order found: {order_data.get('invoice_number', 'N/A')} - {order_data.get('buyer', {}).get('first_name', 'Unknown')} {order_data.get('buyer', {}).get('last_name', '')}",
+                        notes=f"Order found: {order_data.get('invoice_number', 'N/A')} - {order_data.get('buyer', {}).get('first_name', 'Unknown') if order_data.get('buyer') else 'Unknown'} {order_data.get('buyer', {}).get('last_name', '') if order_data.get('buyer') else ''}",
                         promised_delivery_date=promised_date,
                     )
             else:
@@ -1173,11 +1289,26 @@ def handle_order_confirm():
                     notes="Order not found in AfterBuy system",
                 )
 
-            db.session.add(order)
-            db.session.commit()
+            try:
+                db.session.add(order)
+                db.session.commit()
+            except Exception as e:
+                logger.error(f"Error saving order to database: {str(e)}")
+                db.session.rollback()
+                # Continue execution even if database save fails
 
             # Simulate processing time
             response.pause(length=2)
+
+            # Ensure status_response is not None
+            if not status_response:
+                logger.error(f"status_response is None for order {order_number}")
+                if language == "de":
+                    status_response = "Entschuldigung, es ist ein Fehler aufgetreten. Bitte versuchen Sie es später erneut."
+                else:
+                    status_response = (
+                        "Sorry, an error occurred. Please try again later."
+                    )
 
             response.say(
                 status_response,
@@ -1227,7 +1358,7 @@ def handle_order_confirm():
 
             # Ask for order number again
             if language == "de":
-                retry_response = "Verstanden. Bitte geben Sie Ihre Bestellnummer erneut über die Tastatur ein. Drücken Sie die Raute-Taste # wenn Sie fertig sind."
+                retry_response = "Verstanden. Bitte geben Sie Ihre Rechnungsnummer erneut über die Tastatur ein. Drücken Sie die Raute-Taste # wenn Sie fertig sind."
             else:
                 retry_response = "Understood. Please enter your order number again using the keypad. Press the hash key # when you are finished."
 
@@ -1259,6 +1390,9 @@ def handle_order_confirm():
             else:
                 response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
             response.hangup()
+            
+            # Return early - no order to save, no status_response needed
+            return Response(str(response), mimetype="text/xml")
 
         else:  # Invalid confirmation
             logger.warning(
@@ -1271,7 +1405,7 @@ def handle_order_confirm():
             # Ask for confirmation again
             formatted_number = format_order_number_for_speech(order_number)
             if language == "de":
-                invalid_response = f"Entschuldigung, ich habe Ihre Antwort nicht verstanden. Sie haben die Bestellnummer {formatted_number} eingegeben. Ist das korrekt? Drücken Sie 1 für Ja oder 2 für Nein."
+                invalid_response = f"Entschuldigung, ich habe Ihre Antwort nicht verstanden. Sie haben die Rechnungsnummer {formatted_number} eingegeben. Ist das korrekt? Drücken Sie 1 für Ja oder 2 für Nein."
             else:
                 invalid_response = f"Sorry, I didn't understand your response. You have entered order number {formatted_number}. Is this correct? Press 1 for Yes or 2 for No."
 
@@ -1303,6 +1437,9 @@ def handle_order_confirm():
             else:
                 response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
             response.hangup()
+            
+            # Return early - no order to save, no status_response needed
+            return Response(str(response), mimetype="text/xml")
 
         return Response(str(response), mimetype="text/xml")
 
@@ -1346,7 +1483,7 @@ def handle_help():
 
             # Ask for order number again
             if language == "de":
-                order_prompt = "Wenn Sie den Status einer anderen Bestellung erfahren möchten, diktieren Sie bitte die Bestellnummer."
+                order_prompt = "Wenn Sie den Status einer anderen Bestellung erfahren möchten, diktieren Sie bitte die Rechnungsnummer."
             else:
                 order_prompt = "If you would like to know the status of another order, please dictate the order number."
 
@@ -1478,10 +1615,14 @@ def update_call_status_api(call_id):
 
         call = Call.query.get_or_404(call_id)
         call.status = CallStatus[new_status]
-        db.session.commit()
-
-        logger.info(f"Call {call_id} status updated to {new_status}")
-        return {"message": "Status updated successfully", "status": new_status}
+        try:
+            db.session.commit()
+            logger.info(f"Call {call_id} status updated to {new_status}")
+            return {"message": "Status updated successfully", "status": new_status}
+        except Exception as db_error:
+            logger.error(f"Database error updating call status: {db_error}")
+            db.session.rollback()
+            return {"error": "Failed to update status"}, 500
 
     except Exception as e:
         logger.error(f"Error updating call status: {e}")
@@ -1507,10 +1648,14 @@ def update_order_status_api(order_id):
         from datetime import datetime
 
         order.updated_at = datetime.utcnow()
-        db.session.commit()
-
-        logger.info(f"Order {order_id} status updated to {new_status}")
-        return {"message": "Order status updated successfully", "status": new_status}
+        try:
+            db.session.commit()
+            logger.info(f"Order {order_id} status updated to {new_status}")
+            return {"message": "Order status updated successfully", "status": new_status}
+        except Exception as db_error:
+            logger.error(f"Database error updating order status: {db_error}")
+            db.session.rollback()
+            return {"error": "Failed to update order status"}, 500
 
     except Exception as e:
         logger.error(f"Error updating order status: {e}")
@@ -1574,16 +1719,19 @@ def handle_voice_message():
             response.hangup()
             return Response(str(response), mimetype="text/xml")
 
-        language = detect_language(caller_number)
+        # Use language from call record (more reliable than re-detecting)
+        language = call.language if call.language else detect_language(caller_number)
+        logger.info(f"Using language for transcription: {language} (from call record)")
+
         response = VoiceResponse()
 
         if digits == "1":  # User wants to leave a voice message
             logger.info(f"User {caller_number} wants to leave a voice message")
 
             if language == "de":
-                message_prompt = "Bitte hinterlassen Sie nach dem Signalton eine Nachricht. Sie erhalten innerhalb von 24 Stunden eine Antwort per E-Mail."
+                message_prompt = "Bitte hinterlassen Sie nach dem Signalton eine Nachricht. Drücken Sie die Raute-Taste # wenn Sie fertig sind. Sie erhalten innerhalb von 24 Stunden eine Antwort per E-Mail."
             else:
-                message_prompt = "Please leave a message after the tone. You will receive a reply by email within 24 hours."
+                message_prompt = "Please leave a message after the tone. Press the hash key # when you are finished. You will receive a reply by email within 24 hours."
 
             response.say(
                 message_prompt,
@@ -1594,13 +1742,24 @@ def handle_voice_message():
             )
 
             # Record the message with transcription
+            # finishOnKey="#" allows user to press # to end recording
+            # timeout=5 automatically ends recording after 5 seconds of silence
+            # Determine language for transcription - Twilio uses language codes like "de-DE" or "en-US"
+            transcription_language = "de-DE" if language == "de" else "en-US"
+            logger.info(f"Setting transcription language to: {transcription_language}")
+
+            # The <Record> verb supports the language parameter for transcription
+            # This tells Twilio which language to use for transcribing the recording
             response.record(
                 maxLength=60,  # 60 seconds max
                 action="/webhook/recorded",
                 method="POST",
+                finishOnKey="#",  # User can press # to finish recording
+                timeout=5,  # Auto-finish after 5 seconds of silence
                 recordingStatusCallback="/webhook/recording_status",
                 transcribe=True,  # Enable transcription
                 transcribeCallback="/webhook/transcription",  # Callback for transcription
+                language=transcription_language,  # Set language for transcription (de-DE for German, en-US for English)
             )
 
             # Log action
@@ -1684,33 +1843,71 @@ def handle_recorded():
     """Handle recorded voice message"""
     try:
         recording_url = request.form.get("RecordingUrl", "")
+        recording_sid = request.form.get("RecordingSid", "")
+        recording_duration = request.form.get("RecordingDuration", "0")
+        recording_status = request.form.get("RecordingStatus", "")
+        digits = request.form.get("Digits", "")  # Will contain "#" if user pressed #
         recording_transcription = request.form.get(
             "RecordingTranscription", ""
         ) or request.form.get("TranscriptionText", "")
         caller_number = request.form.get("From", "")
         call_sid = request.form.get("CallSid", "")
 
+        # Determine how recording was finished
+        try:
+            duration_seconds = int(recording_duration) if recording_duration else 0
+        except (ValueError, TypeError):
+            duration_seconds = 0
+
+        finish_method = "unknown"
+        if digits == "#":
+            finish_method = "user_pressed_hash"
+        elif duration_seconds >= 60:
+            finish_method = "max_length_reached"
+        elif duration_seconds > 0:
+            finish_method = "timeout_silence"
+
         logger.info(f"Voice message recorded from {caller_number}")
         logger.info(f"Recording URL: {recording_url}")
+        logger.info(f"Recording Duration: {duration_seconds} seconds")
+        logger.info(f"Recording finished by: {finish_method}")
         logger.info(f"Recording Transcription: {recording_transcription}")
 
         # Get call record
         call = Call.query.filter_by(call_sid=call_sid).first()
         if call:
             # Save recording transcription text to conversation
-            language = detect_language(caller_number)
+            # Use language from call record for consistency
+            language = call.language if call.language else detect_language(caller_number)
 
-            if language == "de":
-                thank_you = "Vielen Dank für Ihre Nachricht. Wir melden uns innerhalb von 24 Stunden bei Ihnen. Auf Wiedersehen!"
+            # Check if recording is empty or too short
+            if duration_seconds < 1 or not recording_url:
+                # Recording is too short or failed
+                if language == "de":
+                    thank_you = "Entschuldigung, ich konnte Ihre Nachricht nicht aufnehmen. Bitte versuchen Sie es erneut oder kontaktieren Sie uns direkt."
+                else:
+                    thank_you = "Sorry, I couldn't record your message. Please try again or contact us directly."
+
+                logger.warning(
+                    f"Recording failed or too short: duration={duration_seconds}s, url={recording_url}"
+                )
             else:
-                thank_you = "Thank you for your message. We will contact you within 24 hours. Goodbye!"
+                if language == "de":
+                    thank_you = "Vielen Dank für Ihre Nachricht. Wir melden uns innerhalb von 24 Stunden bei Ihnen. Auf Wiedersehen!"
+                else:
+                    thank_you = "Thank you for your message. We will contact you within 24 hours. Goodbye!"
 
             # Save the transcription text, not just URL
-            transcription_text = (
-                recording_transcription
-                if recording_transcription
-                else f"Voice message recorded (URL: {recording_url})"
-            )
+            if duration_seconds >= 1 and recording_url:
+                transcription_text = (
+                    recording_transcription
+                    if recording_transcription
+                    else f"Voice message recorded (Duration: {duration_seconds}s, Finished by: {finish_method}, URL: {recording_url})"
+                )
+            else:
+                transcription_text = (
+                    f"Voice message recording failed (Duration: {duration_seconds}s)"
+                )
 
             log_conversation(
                 call.id,
@@ -1719,19 +1916,40 @@ def handle_recorded():
                 bot_response=thank_you,
             )
 
-            # Also save to order notes
-            orders = (
-                Order.query.filter_by(call_id=call.id)
-                .order_by(Order.created_at.desc())
-                .all()
-            )
-            if orders:
-                order = orders[0]
-                if order.notes:
-                    order.notes += f"\n\nVoice message: {transcription_text}"
-                else:
-                    order.notes = f"Voice message: {transcription_text}"
-                db.session.commit()
+            # Also save to order notes (only if recording was successful)
+            order_number = None
+            if duration_seconds >= 1 and recording_url:
+                orders = (
+                    Order.query.filter_by(call_id=call.id)
+                    .order_by(Order.created_at.desc())
+                    .all()
+                )
+                if orders:
+                    order = orders[0]
+                    order_number = order.order_number
+                    message_info = f"Voice message (Duration: {duration_seconds}s, Finished by: {finish_method})"
+                    if recording_transcription:
+                        message_info += f": {recording_transcription}"
+                    if order.notes:
+                        order.notes += f"\n\n{message_info}"
+                    else:
+                        order.notes = message_info
+                    db.session.commit()
+
+            # Send email notification with voice message
+            if duration_seconds >= 1 and recording_url:
+                try:
+                    send_voice_message_email(
+                        caller_number=caller_number,
+                        recording_url=recording_url,
+                        transcription_text=recording_transcription or "",
+                        duration_seconds=duration_seconds,
+                        language=language,
+                        order_number=order_number,
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to send email notification: {str(e)}")
+                    # Don't fail the request if email fails
 
             update_call_status(call.id, CallStatus.COMPLETED)
 
@@ -1745,6 +1963,8 @@ def handle_recorded():
             )
             response.hangup()
         else:
+            # Call not found - use default language
+            language = detect_language(caller_number) if caller_number else "de"
             response = VoiceResponse()
             response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
             response.hangup()
@@ -1793,6 +2013,7 @@ def handle_transcription():
                 )
 
             # Also update order notes
+            order_number = None
             orders = (
                 Order.query.filter_by(call_id=call.id)
                 .order_by(Order.created_at.desc())
@@ -1800,6 +2021,7 @@ def handle_transcription():
             )
             if orders:
                 order = orders[0]
+                order_number = order.order_number
                 if order.notes:
                     order.notes = order.notes.replace(
                         "Voice message: Voice message recorded (URL:",
@@ -1808,6 +2030,57 @@ def handle_transcription():
                 else:
                     order.notes = f"Voice message transcription: {transcription_text}"
                 db.session.commit()
+            
+            # Get recording URL from conversation to send updated email with full transcription
+            recording_url = None
+            conversations_with_url = (
+                Conversation.query.filter_by(
+                    call_id=call.id, step="voice_message_recorded"
+                )
+                .order_by(Conversation.timestamp.desc())
+                .all()
+            )
+            for conv in conversations_with_url:
+                if conv.user_input and "URL:" in conv.user_input:
+                    # Extract URL from user_input
+                    url_match = re.search(r'URL:\s*([^\s\)]+)', conv.user_input)
+                    if url_match:
+                        recording_url = url_match.group(1)
+                        break
+            
+            # If we have transcription and recording URL, send updated email with full transcription
+            if transcription_text and recording_url:
+                try:
+                    # Get caller number and language from call
+                    caller_number = call.phone_number if call else ""
+                    language = call.language if call and call.language else "de"
+                    
+                    # Validate required fields
+                    if not caller_number or not recording_url:
+                        logger.warning(f"Cannot send email: missing caller_number or recording_url for call {call_sid}")
+                        return Response(status=200)
+                    
+                    # Get duration from conversation if available
+                    duration_seconds = 0
+                    if conversations_with_url and len(conversations_with_url) > 0:
+                        duration_match = re.search(r'Duration:\s*(\d+)', conversations_with_url[0].user_input or "")
+                        if duration_match:
+                            try:
+                                duration_seconds = int(duration_match.group(1))
+                            except (ValueError, TypeError):
+                                duration_seconds = 0
+                    
+                    send_voice_message_email(
+                        caller_number=caller_number,
+                        recording_url=recording_url,
+                        transcription_text=transcription_text,
+                        duration_seconds=duration_seconds,
+                        language=language,
+                        order_number=order_number,
+                    )
+                    logger.info(f"Sent updated email with transcription for call {call_sid}")
+                except Exception as e:
+                    logger.error(f"Failed to send updated email with transcription: {str(e)}")
 
         return Response(status=200)
 
