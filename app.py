@@ -2,6 +2,7 @@ from flask import Flask, request, Response, render_template
 from twilio.twiml.voice_response import VoiceResponse
 import logging
 import re
+from datetime import datetime, UTC, timedelta
 from config import Config
 from models import db, Call, Conversation, Order, CallStatus
 from sqlalchemy import desc
@@ -84,7 +85,7 @@ def update_call_status(call_id, status):
         logger.error("update_call_status called with empty call_id")
         return
 
-    call = Call.query.get(call_id)
+    call = db.session.get(Call, call_id)
     if call:
         try:
             call.status = status
@@ -1390,7 +1391,7 @@ def handle_order_confirm():
             else:
                 response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
             response.hangup()
-            
+
             # Return early - no order to save, no status_response needed
             return Response(str(response), mimetype="text/xml")
 
@@ -1437,7 +1438,7 @@ def handle_order_confirm():
             else:
                 response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
             response.hangup()
-            
+
             # Return early - no order to save, no status_response needed
             return Response(str(response), mimetype="text/xml")
 
@@ -1487,11 +1488,20 @@ def handle_help():
             else:
                 order_prompt = "If you would like to know the status of another order, please dictate the order number."
 
+            # Configure speech recognition with proper language and model
+            # Use de-DE format for German (not just "de")
+            # Use googlev2_telephony or deepgram_nova-3 for better German support
+            speech_language = "de-DE" if language == "de" else "en-US"
+            # Use Google STT V2 for better German recognition, or Deepgram Nova-3
+            # Note: Check Twilio console to ensure these providers are enabled
+            speech_model = "googlev2_telephony"  # Supports de-DE well
+
             gather = response.gather(
                 input="speech",
                 timeout=10,
                 speech_timeout="auto",
-                language=language,
+                language=speech_language,  # Use de-DE format for proper German recognition
+                speech_model=speech_model,  # Use Google STT V2 for better accuracy
                 action="/webhook/order",
                 method="POST",
             )
@@ -1645,13 +1655,14 @@ def update_order_status_api(order_id):
         if notes:
             order.notes = notes
         # Update updated_at timestamp
-        from datetime import datetime
-
-        order.updated_at = datetime.utcnow()
+        order.updated_at = datetime.now(UTC)
         try:
             db.session.commit()
             logger.info(f"Order {order_id} status updated to {new_status}")
-            return {"message": "Order status updated successfully", "status": new_status}
+            return {
+                "message": "Order status updated successfully",
+                "status": new_status,
+            }
         except Exception as db_error:
             logger.error(f"Database error updating order status: {db_error}")
             db.session.rollback()
@@ -1744,12 +1755,29 @@ def handle_voice_message():
             # Record the message with transcription
             # finishOnKey="#" allows user to press # to end recording
             # timeout=5 automatically ends recording after 5 seconds of silence
-            # Determine language for transcription - Twilio uses language codes like "de-DE" or "en-US"
+            # IMPORTANT: Twilio's built-in transcription for <Record> ONLY supports English (en-US)
+            # Even if you set transcribeLanguage="de-DE", Twilio will transcribe German as English
+            # This is a known limitation of Twilio's transcription service
+            #
+            # Solutions:
+            # 1. Use external transcription service (Google Cloud Speech-to-Text, Deepgram, etc.)
+            #    - Download audio from recording_url in recordingStatusCallback
+            #    - Send to external service with de-DE language code
+            #    - Update transcription in database
+            # 2. Use Twilio Add-ons (IBM Watson, etc.) that support German
+            # 3. For now, we keep transcribe=True but expect English transcription for German audio
+            #
+            # For proper German transcription, implement external service integration
             transcription_language = "de-DE" if language == "de" else "en-US"
-            logger.info(f"Setting transcription language to: {transcription_language}")
+            logger.warning(
+                f"Setting transcription language to: {transcription_language}, "
+                f"but Twilio built-in transcription may not support German properly. "
+                f"Consider using external transcription service for accurate German transcription."
+            )
 
-            # The <Record> verb supports the language parameter for transcription
-            # This tells Twilio which language to use for transcribing the recording
+            # The <Record> verb uses transcribeLanguage parameter for transcription
+            # WARNING: Twilio's built-in transcription only fully supports en-US
+            # German audio will be transcribed poorly or as English
             response.record(
                 maxLength=60,  # 60 seconds max
                 action="/webhook/recorded",
@@ -1757,9 +1785,9 @@ def handle_voice_message():
                 finishOnKey="#",  # User can press # to finish recording
                 timeout=5,  # Auto-finish after 5 seconds of silence
                 recordingStatusCallback="/webhook/recording_status",
-                transcribe=True,  # Enable transcription
+                transcribe=True,  # Enable transcription (but limited to English quality)
                 transcribeCallback="/webhook/transcription",  # Callback for transcription
-                language=transcription_language,  # Set language for transcription (de-DE for German, en-US for English)
+                transcribeLanguage=transcription_language,  # Set language (may not work for German)
             )
 
             # Log action
@@ -1878,7 +1906,9 @@ def handle_recorded():
         if call:
             # Save recording transcription text to conversation
             # Use language from call record for consistency
-            language = call.language if call.language else detect_language(caller_number)
+            language = (
+                call.language if call.language else detect_language(caller_number)
+            )
 
             # Check if recording is empty or too short
             if duration_seconds < 1 or not recording_url:
@@ -1897,13 +1927,20 @@ def handle_recorded():
                 else:
                     thank_you = "Thank you for your message. We will contact you within 24 hours. Goodbye!"
 
-            # Save the transcription text, not just URL
+            # Save the transcription text with URL always included
+            # This ensures URL is available for handle_transcription later
             if duration_seconds >= 1 and recording_url:
-                transcription_text = (
-                    recording_transcription
-                    if recording_transcription
-                    else f"Voice message recorded (Duration: {duration_seconds}s, Finished by: {finish_method}, URL: {recording_url})"
-                )
+                # Always include URL in user_input, even if transcription is available
+                # Format: "Voice message recorded (Duration: Xs, Finished by: Y, URL: Z)"
+                # If transcription is available, it will be appended in handle_transcription
+                base_message = f"Voice message recorded (Duration: {duration_seconds}s, Finished by: {finish_method}, URL: {recording_url})"
+                if recording_transcription:
+                    # Include transcription in the initial message
+                    transcription_text = (
+                        f"{base_message}\nTranscription: {recording_transcription}"
+                    )
+                else:
+                    transcription_text = base_message
             else:
                 transcription_text = (
                     f"Voice message recording failed (Duration: {duration_seconds}s)"
@@ -1936,20 +1973,31 @@ def handle_recorded():
                         order.notes = message_info
                     db.session.commit()
 
-            # Send email notification with voice message
-            if duration_seconds >= 1 and recording_url:
-                try:
-                    send_voice_message_email(
-                        caller_number=caller_number,
-                        recording_url=recording_url,
-                        transcription_text=recording_transcription or "",
-                        duration_seconds=duration_seconds,
-                        language=language,
-                        order_number=order_number,
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to send email notification: {str(e)}")
-                    # Don't fail the request if email fails
+            # Note: Email will be sent in handle_transcription() when full transcription is available
+            # This prevents duplicate emails and ensures we send email with complete transcription
+            # IMPORTANT: Do NOT send email here even if transcription is available
+            # This prevents rate limiting issues - email will be sent only once in handle_transcription()
+            # The transcription from handle_recorded might be incomplete or preliminary
+            email_already_sent = Conversation.query.filter_by(
+                call_id=call.id, step="email_sent"
+            ).first()
+
+            logger.info(
+                f"handle_recorded: duration={duration_seconds}, recording_url={'present' if recording_url else 'missing'}, "
+                f"transcription={'present' if recording_transcription else 'missing'}, email_already_sent={email_already_sent is not None}"
+            )
+
+            # Always skip email sending in handle_recorded to avoid rate limiting
+            # Email will be sent only once in handle_transcription() with full transcription
+            if email_already_sent:
+                logger.info(
+                    f"Email already sent for call {call_sid}, skipping duplicate"
+                )
+            else:
+                # Email will be sent in handle_transcription() when full transcription arrives
+                logger.info(
+                    f"Email will be sent in handle_transcription() when full transcription is available for call {call_sid}"
+                )
 
             update_call_status(call.id, CallStatus.COMPLETED)
 
@@ -1994,6 +2042,20 @@ def handle_transcription():
 
         # Get call record
         call = Call.query.filter_by(call_sid=call_sid).first()
+        if not call:
+            logger.warning(
+                f"Call record not found for {call_sid} in handle_transcription"
+            )
+            return Response(status=200)
+
+        if not transcription_text:
+            logger.warning(f"Transcription text is empty for call {call_sid}")
+            return Response(status=200)
+
+        logger.info(
+            f"Processing transcription for call {call_sid}, call_id: {call.id}, transcription length: {len(transcription_text)}"
+        )
+
         if call and transcription_text:
             # Update the conversation with transcription text
             conversations = (
@@ -2006,7 +2068,28 @@ def handle_transcription():
 
             if conversations:
                 conversation = conversations[0]
-                conversation.user_input = transcription_text
+                # Preserve existing user_input (which contains URL) and append transcription
+                # Format: "Voice message recorded (Duration: Xs, Finished by: Y, URL: Z)\nTranscription: ..."
+                existing_input = conversation.user_input or ""
+                if "URL:" in existing_input and "Transcription:" not in existing_input:
+                    # Keep the URL part and append transcription
+                    conversation.user_input = (
+                        f"{existing_input}\nTranscription: {transcription_text}"
+                    )
+                elif "Transcription:" in existing_input:
+                    # Update existing transcription
+                    # Replace old transcription with new one
+                    lines = existing_input.split("\n")
+                    new_lines = []
+                    for line in lines:
+                        if line.startswith("Transcription:"):
+                            new_lines.append(f"Transcription: {transcription_text}")
+                        else:
+                            new_lines.append(line)
+                    conversation.user_input = "\n".join(new_lines)
+                else:
+                    # If no URL in existing input, just set transcription
+                    conversation.user_input = transcription_text
                 db.session.commit()
                 logger.info(
                     f"Updated conversation {conversation.id} with transcription text"
@@ -2030,7 +2113,7 @@ def handle_transcription():
                 else:
                     order.notes = f"Voice message transcription: {transcription_text}"
                 db.session.commit()
-            
+
             # Get recording URL from conversation to send updated email with full transcription
             recording_url = None
             conversations_with_url = (
@@ -2040,37 +2123,161 @@ def handle_transcription():
                 .order_by(Conversation.timestamp.desc())
                 .all()
             )
+            logger.info(
+                f"Found {len(conversations_with_url)} conversations with step 'voice_message_recorded' for call {call_sid}"
+            )
             for conv in conversations_with_url:
-                if conv.user_input and "URL:" in conv.user_input:
-                    # Extract URL from user_input
-                    url_match = re.search(r'URL:\s*([^\s\)]+)', conv.user_input)
+                if conv.user_input:
+                    logger.debug(
+                        f"Checking conversation {conv.id} user_input for URL: {conv.user_input[:200]}"
+                    )
+                    # Try to extract URL from user_input in different formats
+                    # Format 1: "URL: https://..."
+                    url_match = re.search(r"URL:\s*([^\s\)\n]+)", conv.user_input)
                     if url_match:
                         recording_url = url_match.group(1)
+                        logger.info(
+                            f"Found recording URL using Format 1: {recording_url}"
+                        )
                         break
-            
-            # If we have transcription and recording URL, send updated email with full transcription
+                    # Format 2: "Voice message URL: https://..." (from recording_status callback)
+                    url_match2 = re.search(
+                        r"Voice message URL:\s*([^\s\n]+)", conv.user_input
+                    )
+                    if url_match2:
+                        recording_url = url_match2.group(1)
+                        break
+                    # Format 3: Direct URL pattern (http:// or https://)
+                    url_match3 = re.search(r"(https?://[^\s\)\n]+)", conv.user_input)
+                    if url_match3:
+                        potential_url = url_match3.group(1)
+                        # Validate it looks like a Twilio recording URL
+                        if (
+                            "api.twilio.com" in potential_url
+                            or "recordings" in potential_url.lower()
+                        ):
+                            recording_url = potential_url
+                            break
+
+            # If still no URL, try to get it from handle_recorded data stored in conversation
+            # The URL should be in the conversation from handle_recorded
+            if not recording_url:
+                # Look for URL in all conversations for this call
+                all_conversations = (
+                    Conversation.query.filter_by(call_id=call.id)
+                    .order_by(Conversation.timestamp.desc())
+                    .all()
+                )
+                for conv in all_conversations:
+                    if conv.user_input:
+                        # Try multiple URL patterns
+                        patterns = [
+                            r"URL:\s*([^\s\)\n]+)",  # URL: https://...
+                            r"Voice message URL:\s*([^\s\n]+)",  # Voice message URL: https://...
+                            r"(https?://api\.twilio\.com/[^\s\)\n]+)",  # Direct Twilio URL
+                        ]
+                        for pattern in patterns:
+                            url_match = re.search(pattern, conv.user_input)
+                            if url_match:
+                                potential_url = url_match.group(1)
+                                # Clean up URL (remove trailing punctuation)
+                                potential_url = potential_url.rstrip(".,;:!?)")
+                                if potential_url.startswith("http"):
+                                    recording_url = potential_url
+                                    logger.info(
+                                        f"Found recording URL in conversation: {recording_url}"
+                                    )
+                                    break
+                        if recording_url:
+                            break
+
+            if not recording_url:
+                # Log detailed information for debugging
+                logger.warning(
+                    f"Could not find recording_url for call {call_sid} in any conversation. "
+                    f"Available conversations: {[c.step for c in conversations_with_url]}"
+                )
+                # Log user_input from conversations for debugging
+                for conv in conversations_with_url:
+                    if conv.user_input:
+                        logger.warning(
+                            f"Conversation {conv.id} user_input (first 300 chars): {conv.user_input[:300]}"
+                        )
+
+            # Check if email was already sent for this call to avoid duplicates
+            # This prevents rate limiting issues from sending multiple emails
+            email_already_sent = Conversation.query.filter_by(
+                call_id=call.id, step="email_sent"
+            ).first()
+
+            if email_already_sent:
+                logger.info(
+                    f"Email already sent for call {call_sid}, skipping to avoid duplicates and rate limiting"
+                )
+                return Response(status=200)
+
+            # Check for recent email attempts to prevent rate limiting
+            # SMTP server may block for 30+ seconds, so we check last 120 seconds to be safe
+            # This prevents both failed attempts and too frequent successful sends
+            recent_attempt_threshold = datetime.now(UTC) - timedelta(seconds=120)
+
+            # Check for any recent email activity (both attempts and successful sends)
+            recent_email_activity = (
+                Conversation.query.filter(
+                    Conversation.call_id == call.id,
+                    Conversation.step.in_(["email_attempt", "email_sent"]),
+                    Conversation.timestamp >= recent_attempt_threshold,
+                )
+                .order_by(Conversation.timestamp.desc())
+                .first()
+            )
+
+            if recent_email_activity:
+                time_since_last = (
+                    datetime.now(UTC) - recent_email_activity.timestamp
+                ).total_seconds()
+                logger.warning(
+                    f"Recent email activity detected for call {call_sid} "
+                    f"({int(time_since_last)} seconds ago, step: {recent_email_activity.step}). "
+                    f"Skipping to avoid SMTP rate limiting. Last activity: {recent_email_activity.timestamp}"
+                )
+                return Response(status=200)
+
+            # Send email with full transcription (primary email sending point)
+            # This is the main place where email is sent to avoid duplicates
+            logger.info(
+                f"handle_transcription: Checking conditions for email sending - "
+                f"transcription_text={'present' if transcription_text else 'missing'}, "
+                f"recording_url={'present' if recording_url else 'missing'}"
+            )
             if transcription_text and recording_url:
                 try:
                     # Get caller number and language from call
                     caller_number = call.phone_number if call else ""
                     language = call.language if call and call.language else "de"
-                    
+
                     # Validate required fields
                     if not caller_number or not recording_url:
-                        logger.warning(f"Cannot send email: missing caller_number or recording_url for call {call_sid}")
+                        logger.warning(
+                            f"Cannot send email: missing caller_number or recording_url for call {call_sid}"
+                        )
                         return Response(status=200)
-                    
+
                     # Get duration from conversation if available
                     duration_seconds = 0
                     if conversations_with_url and len(conversations_with_url) > 0:
-                        duration_match = re.search(r'Duration:\s*(\d+)', conversations_with_url[0].user_input or "")
+                        duration_match = re.search(
+                            r"Duration:\s*(\d+)",
+                            conversations_with_url[0].user_input or "",
+                        )
                         if duration_match:
                             try:
                                 duration_seconds = int(duration_match.group(1))
                             except (ValueError, TypeError):
                                 duration_seconds = 0
-                    
-                    send_voice_message_email(
+
+                    # Send email with full transcription
+                    email_sent = send_voice_message_email(
                         caller_number=caller_number,
                         recording_url=recording_url,
                         transcription_text=transcription_text,
@@ -2078,9 +2285,45 @@ def handle_transcription():
                         language=language,
                         order_number=order_number,
                     )
-                    logger.info(f"Sent updated email with transcription for call {call_sid}")
+                    if email_sent:
+                        logger.info(
+                            f"Successfully sent email with transcription for call {call_sid} "
+                            f"(duration: {duration_seconds}s, order: {order_number or 'N/A'})"
+                        )
+                        # Mark that email was sent to avoid duplicates
+                        log_conversation(
+                            call.id,
+                            "email_sent",
+                            user_input=f"Email sent to {Config.MAIL_RECIPIENT}",
+                        )
+                    else:
+                        # Email sending failed (possibly due to rate limiting)
+                        # Log the attempt to prevent too frequent retries
+                        logger.warning(
+                            f"Email sending returned False for call {call_sid} - check logs for details. "
+                            f"This may be due to SMTP rate limiting."
+                        )
+                        # Log the attempt (but not as "sent") to track and prevent too frequent retries
+                        log_conversation(
+                            call.id,
+                            "email_attempt",
+                            user_input=f"Email sending failed for call {call_sid} - may be rate limited",
+                        )
                 except Exception as e:
-                    logger.error(f"Failed to send updated email with transcription: {str(e)}")
+                    logger.error(
+                        f"Failed to send email with transcription: {str(e)}",
+                        exc_info=True,
+                    )
+            else:
+                # Missing transcription or recording URL - log warning
+                if not transcription_text:
+                    logger.warning(
+                        f"Cannot send email: transcription_text is empty for call {call_sid}"
+                    )
+                if not recording_url:
+                    logger.warning(
+                        f"Cannot send email: recording_url is missing for call {call_sid}"
+                    )
 
         return Response(status=200)
 
@@ -2102,7 +2345,63 @@ def handle_recording_status():
 
         # Get call record and save recording info
         call = Call.query.filter_by(call_sid=call_sid).first()
-        if call:
+        if call and recording_status == "completed" and recording_url:
+            # If external transcription service is configured, use it for accurate German transcription
+            # This bypasses Twilio's limited transcription support
+            if Config.TRANSCRIPTION_SERVICE in ["google", "deepgram"]:
+                try:
+                    from transcription_service import transcribe_with_external_service
+
+                    language = call.language if call.language else "de"
+                    transcription_language = "de-DE" if language == "de" else "en-US"
+
+                    logger.info(
+                        f"Using external transcription service ({Config.TRANSCRIPTION_SERVICE}) "
+                        f"for accurate {transcription_language} transcription"
+                    )
+
+                    # Transcribe with external service
+                    external_transcription = transcribe_with_external_service(
+                        audio_url=recording_url,
+                        language=transcription_language,
+                        service=Config.TRANSCRIPTION_SERVICE,
+                    )
+
+                    if external_transcription:
+                        logger.info(
+                            f"External transcription successful: {len(external_transcription)} chars"
+                        )
+                        # Update conversation with external transcription
+                        log_conversation(
+                            call.id,
+                            "voice_message_recorded",
+                            user_input=f"External transcription ({Config.TRANSCRIPTION_SERVICE}): {external_transcription}",
+                        )
+                        # Update order notes
+                        orders = (
+                            Order.query.filter_by(call_id=call.id)
+                            .order_by(Order.created_at.desc())
+                            .all()
+                        )
+                        if orders:
+                            order = orders[0]
+                            if order.notes:
+                                order.notes += f"\nExternal transcription ({Config.TRANSCRIPTION_SERVICE}): {external_transcription}"
+                            else:
+                                order.notes = f"External transcription ({Config.TRANSCRIPTION_SERVICE}): {external_transcription}"
+                            db.session.commit()
+                    else:
+                        logger.warning(
+                            "External transcription returned no result, falling back to Twilio"
+                        )
+                except ImportError:
+                    logger.warning(
+                        f"External transcription service ({Config.TRANSCRIPTION_SERVICE}) not available, "
+                        f"falling back to Twilio transcription"
+                    )
+                except Exception as e:
+                    logger.error(f"External transcription error: {e}", exc_info=True)
+
             # Update order notes with recording info
             orders = (
                 Order.query.filter_by(call_id=call.id)
