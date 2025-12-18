@@ -2,7 +2,7 @@ from flask import Flask, request, Response, render_template
 from twilio.twiml.voice_response import VoiceResponse
 import logging
 import re
-from datetime import datetime, UTC, timedelta
+from datetime import datetime, timedelta, timezone
 from config import Config
 from models import db, Call, Conversation, Order, CallStatus
 from sqlalchemy import desc
@@ -47,9 +47,9 @@ def create_or_get_call(call_sid, phone_number, language):
             status=CallStatus.PROCESSING,
         )
         try:
-            db.session.add(call)
-            db.session.commit()
-            logger.info(f"Created new call record: {call_sid}")
+        db.session.add(call)
+        db.session.commit()
+        logger.info(f"Created new call record: {call_sid}")
         except Exception as e:
             logger.error(f"Error creating call record: {str(e)}")
             db.session.rollback()
@@ -70,9 +70,9 @@ def log_conversation(call_id, step, user_input=None, bot_response=None):
         call_id=call_id, step=step, user_input=user_input, bot_response=bot_response
     )
     try:
-        db.session.add(conversation)
-        db.session.commit()
-        logger.info(f"Logged conversation: {step}")
+    db.session.add(conversation)
+    db.session.commit()
+    logger.info(f"Logged conversation: {step}")
     except Exception as e:
         logger.error(f"Error logging conversation: {str(e)}, step: {step}")
         db.session.rollback()
@@ -88,9 +88,9 @@ def update_call_status(call_id, status):
     call = db.session.get(Call, call_id)
     if call:
         try:
-            call.status = status
-            db.session.commit()
-            logger.info(f"Updated call {call_id} status to {status.value}")
+        call.status = status
+        db.session.commit()
+        logger.info(f"Updated call {call_id} status to {status.value}")
         except Exception as e:
             logger.error(f"Error updating call status: {str(e)}, call_id: {call_id}")
             db.session.rollback()
@@ -101,9 +101,9 @@ def validate_order_number(order_text, language="de"):
     """Validate if the input looks like a real order number"""
     if not order_text or len(order_text.strip()) < 2:
         return False, "too_short"
-
+    
     order_text = order_text.strip().lower()
-
+    
     # Common non-order words that might be misrecognized
     non_order_words = [
         # Entertainment
@@ -191,7 +191,7 @@ def validate_order_number(order_text, language="de"):
         "gasse",
         "hof",
     ]
-
+    
     # Check if it contains non-order words (but allow partial matches in longer strings)
     for word in non_order_words:
         if word in order_text:
@@ -203,18 +203,18 @@ def validate_order_number(order_text, language="de"):
                 pattern in order_text for pattern in ["-", "_", "."]
             ):
                 return False, "contains_non_order_words"
-
+    
     # Check if it's mostly letters without numbers (suspicious)
     if order_text.isalpha() and len(order_text) > 10:
         return False, "too_many_letters"
-
+    
     # Check if it contains at least some numbers or common order patterns
     has_numbers = any(char.isdigit() for char in order_text)
     has_common_patterns = any(pattern in order_text for pattern in ["-", "_", ".", " "])
-
+    
     if not has_numbers and not has_common_patterns:
         return False, "no_numbers_or_patterns"
-
+    
     # If it passes all checks, it might be a valid order number
     return True, "valid"
 
@@ -517,34 +517,34 @@ def handle_incoming_call():
         caller_number = request.form.get("From", "")
         call_sid = request.form.get("CallSid", "")
         logger.info(f"Incoming call from: {caller_number}")
-
+        
         # Detect language
         language = detect_language(caller_number)
         logger.info(f"Detected language: {language}")
-
+        
         # Create or get call record
         call = create_or_get_call(call_sid, caller_number, language)
-
+        
         # Create TwiML response
         response = VoiceResponse()
-
+        
         # Use static greeting text
         if language == "de":
             # greeting = "Hallo, Sie sprechen mit Liza, Ihrem Sprachassistenten. Dürfen wir Ihr Gespräch zur Qualitätsverbesserung verarbeiten?"
             greeting = get_greeting_message(language)
         else:
             greeting = get_greeting_message(language)
-
+        
         # Speak the greeting
         logger.info(f"Using voice: {Config.VOICE_NAME}")
         response.say(greeting, language=language, voice=Config.VOICE_NAME)
-
+        
         # Log greeting conversation
         log_conversation(call.id, "greeting", bot_response=greeting)
-
+        
         # Get consent prompts
         consent_prompts = get_consent_prompts(language)
-
+        
         # Gather user response for consent
         gather = response.gather(
             input="dtmf",
@@ -553,7 +553,7 @@ def handle_incoming_call():
             action="/webhook/consent",
             method="POST",
         )
-
+        
         # If no input, repeat the prompt
         gather.say(
             consent_prompts["yes"],
@@ -563,15 +563,15 @@ def handle_incoming_call():
                 "neural" if Config.VOICE_NAME.startswith("polly.") else "standard"
             ),
         )
-
+        
         # If no response, say goodbye
         response.say(
             get_goodbye_message(language), language=language, voice=Config.VOICE_NAME
         )
         response.hangup()
-
+        
         return Response(str(response), mimetype="text/xml")
-
+        
     except Exception as e:
         logger.error(f"Error handling incoming call: {str(e)}")
         response = VoiceResponse()
@@ -591,9 +591,9 @@ def handle_consent():
         dtmf_result = request.form.get("Digits", "").strip()
         caller_number = request.form.get("From", "")
         call_sid = request.form.get("CallSid", "")
-
+        
         logger.info(f"Consent response from {caller_number}: {dtmf_result}")
-
+        
         # Get call record
         call = Call.query.filter_by(call_sid=call_sid).first()
         if not call:
@@ -605,21 +605,21 @@ def handle_consent():
             )
             response.hangup()
             return Response(str(response), mimetype="text/xml")
-
+        
         # Detect language again
         language = detect_language(caller_number)
         consent_prompts = get_consent_prompts(language)
-
+        
         # Log consent conversation
         log_conversation(call.id, "consent", user_input=dtmf_result)
-
+        
         response = VoiceResponse()
-
+        
         # Check for positive consent (1 = Yes, 2 = No)
         if dtmf_result == "1":
             # User consented
             logger.info(f"User {caller_number} consented to data processing")
-
+            
             # Use static consent response
             if language == "de":
                 consent_response = "Vielen Dank für Ihre Zustimmung. Bitte teilen Sie mir nun mit, wie ich Ihnen behilflich sein kann."
@@ -632,11 +632,11 @@ def handle_consent():
                     "neural" if Config.VOICE_NAME.startswith("polly.") else "standard"
                 ),
             )
-
+            
             # Log consent response and update status
             log_conversation(call.id, "consent_response", bot_response=consent_response)
             update_call_status(call.id, CallStatus.HANDLED)
-
+            
             # Ask if user has order number first
             order_availability_prompt = get_order_availability_prompt(language)
             response.say(
@@ -662,17 +662,17 @@ def handle_consent():
                 action="/webhook/order_availability",
                 method="POST",
             )
-
+            
             # If no response, say goodbye
             response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
             response.hangup()
-
+            
         elif dtmf_result == "2":
             # User declined, but continue anyway
             logger.info(
                 f"User {caller_number} declined data processing, but continuing"
             )
-
+            
             # Use static consent response
             if language == "de":
                 consent_response = "Danke für Ihren Anruf. Ich helfe Ihnen gerne weiter. Wie kann ich Ihnen behilflich sein?"
@@ -685,7 +685,7 @@ def handle_consent():
                     "neural" if Config.VOICE_NAME.startswith("polly.") else "standard"
                 ),
             )
-
+            
             # Log consent response and update status
             log_conversation(
                 call.id, "consent_declined_but_continued", bot_response=consent_response
@@ -721,19 +721,19 @@ def handle_consent():
             # If no response, say goodbye
             response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
             response.hangup()
-
+            
         else:
             # Invalid response
             logger.warning(
                 f"Invalid consent response '{dtmf_result}' from {caller_number}"
             )
-
+            
             # Use static consent response
             if language == "de":
                 invalid_response = "Entschuldigung, ich habe Ihre Antwort nicht verstanden. Drücken Sie die 1 für Ja oder die 2 für Nein."
             else:
                 invalid_response = "Sorry, I didn't understand your response. Press 1 for Yes or 2 for No."
-
+            
             response.say(
                 invalid_response,
                 voice=Config.VOICE_NAME,
@@ -741,10 +741,10 @@ def handle_consent():
                     "neural" if Config.VOICE_NAME.startswith("polly.") else "standard"
                 ),
             )
-
+            
             # Log invalid response
             log_conversation(call.id, "invalid_consent", bot_response=invalid_response)
-
+            
             # Ask for consent again
             gather = response.gather(
                 input="dtmf",
@@ -753,16 +753,16 @@ def handle_consent():
                 action="/webhook/consent",
                 method="POST",
             )
-
+            
             # If no response, say goodbye
             if language == "de":
                 response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
             else:
                 response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
             response.hangup()
-
+        
         return Response(str(response), mimetype="text/xml")
-
+        
     except Exception as e:
         logger.error(f"Error handling consent: {str(e)}")
         response = VoiceResponse()
@@ -921,9 +921,9 @@ def handle_order():
         dtmf_result = request.form.get("Digits", "").strip()
         caller_number = request.form.get("From", "")
         call_sid = request.form.get("CallSid", "")
-
+        
         logger.info(f"Order number from {caller_number}: {dtmf_result}")
-
+        
         # Get call record
         call = Call.query.filter_by(call_sid=call_sid).first()
         if not call:
@@ -935,30 +935,30 @@ def handle_order():
             )
             response.hangup()
             return Response(str(response), mimetype="text/xml")
-
+        
         # Detect language again
         language = detect_language(caller_number)
-
+        
         # Log order input
         log_conversation(call.id, "order_input", user_input=dtmf_result)
-
+        
         response = VoiceResponse()
-
+        
         if dtmf_result:
             # Validate order number
             is_valid, validation_reason = validate_order_number(dtmf_result, language)
-
+            
             if not is_valid:
                 # Invalid order number - ask for clarification
                 logger.warning(
                     f"Invalid order number '{dtmf_result}' from {caller_number}: {validation_reason}"
                 )
-
+                
                 if language == "de":
                     invalid_response = f"Entschuldigung, ich habe '{dtmf_result}' nicht als gültige Rechnungsnummer erkannt. Bitte geben Sie Ihre Rechnungsnummer erneut über die Tastatur ein."
                 else:
                     invalid_response = f"Sorry, I didn't recognize '{dtmf_result}' as a valid order number. Please enter your order number again using the keypad."
-
+                
                 response.say(
                     invalid_response,
                     voice=Config.VOICE_NAME,
@@ -968,18 +968,18 @@ def handle_order():
                         else "standard"
                     ),
                 )
-
+                
                 # Log invalid response
                 log_conversation(
                     call.id, "invalid_order_response", bot_response=invalid_response
                 )
-
+                
                 # Ask for order number again
                 if language == "de":
                     retry_prompt = "Bitte geben Sie Ihre Rechnungsnummer erneut über die Tastatur ein. Drücken Sie die Raute-Taste # wenn Sie fertig sind."
                 else:
                     retry_prompt = "Please enter your order number again using the keypad. Press the hash key # when you are finished."
-
+                
                 gather = response.gather(
                     input="dtmf",
                     timeout=30,
@@ -987,23 +987,23 @@ def handle_order():
                     action="/webhook/order",
                     method="POST",
                 )
-
+                
                 # If no response, say goodbye
                 if language == "de":
                     response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
                 else:
                     response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
                 response.hangup()
-
+                
                 return Response(str(response), mimetype="text/xml")
-
+            
             # Valid order number - ask for confirmation
             formatted_number = format_order_number_for_speech(dtmf_result)
             if language == "de":
                 confirmation_response = f"Sie haben die folgende Rechnungsnummer {formatted_number} eingetippt? Bitte bestätigen Sie durch 1 für Ja oder 2 für Nein."
             else:
                 confirmation_response = f"You have entered order number {formatted_number}. Is this correct? Press 1 for Yes or 2 for No."
-
+            
             response.say(
                 confirmation_response,
                 voice=Config.VOICE_NAME,
@@ -1011,14 +1011,14 @@ def handle_order():
                     "neural" if Config.VOICE_NAME.startswith("polly.") else "standard"
                 ),
             )
-
+            
             # Log confirmation request
             log_conversation(
                 call.id,
                 "order_confirmation_request",
                 bot_response=confirmation_response,
             )
-
+            
             # Gather confirmation (1 for Yes, 2 for No)
             gather = response.gather(
                 input="dtmf",
@@ -1027,14 +1027,14 @@ def handle_order():
                 action="/webhook/order_confirm",
                 method="POST",
             )
-
+            
             # If no response, say goodbye
             if language == "de":
                 response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
             else:
                 response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
             response.hangup()
-
+            
             return Response(str(response), mimetype="text/xml")
 
         else:
@@ -1067,7 +1067,7 @@ def handle_order():
             response.dial(number=manager_phone, caller_id=caller_number)
 
         return Response(str(response), mimetype="text/xml")
-
+        
     except Exception as e:
         logger.error(f"Error handling order: {str(e)}")
         response = VoiceResponse()
@@ -1087,9 +1087,9 @@ def handle_order_confirm():
         confirmation = request.form.get("Digits", "").strip()
         caller_number = request.form.get("From", "")
         call_sid = request.form.get("CallSid", "")
-
+        
         logger.info(f"Order confirmation from {caller_number}: {confirmation}")
-
+        
         # Get call record
         call = Call.query.filter_by(call_sid=call_sid).first()
         if not call:
@@ -1101,17 +1101,17 @@ def handle_order_confirm():
             )
             response.hangup()
             return Response(str(response), mimetype="text/xml")
-
+        
         # Detect language
         language = detect_language(caller_number)
-
+        
         # Get the order number from the last conversation
         last_conversation = (
             Conversation.query.filter_by(call_id=call.id, step="order_input")
             .order_by(Conversation.timestamp.desc())
             .first()
         )
-
+        
         if not last_conversation:
             logger.error(f"No order input found for call {call_sid}")
             response = VoiceResponse()
@@ -1121,11 +1121,11 @@ def handle_order_confirm():
             )
             response.hangup()
             return Response(str(response), mimetype="text/xml")
-
+        
         order_number = last_conversation.user_input
         if not order_number:
             logger.error(f"Order number is empty for call {call_sid}")
-            response = VoiceResponse()
+        response = VoiceResponse()
             if language == "de":
                 error_msg = "Entschuldigung, ich konnte die Rechnungsnummer nicht finden. Bitte versuchen Sie es erneut."
             else:
@@ -1138,13 +1138,13 @@ def handle_order_confirm():
 
         if confirmation == "1":  # Yes - confirmed
             logger.info(f"Order {order_number} confirmed by {caller_number}")
-
+            
             # Log confirmation
             log_conversation(call.id, "order_confirmed", user_input="1")
 
             # Get real order data from AfterBuy
             order_data = get_order_from_afterbuy(order_number)
-
+            
             # Process confirmed order
             formatted_number = format_order_number_for_speech(order_number)
             if language == "de":
@@ -1159,7 +1159,7 @@ def handle_order_confirm():
                     "neural" if Config.VOICE_NAME.startswith("polly.") else "standard"
                 ),
             )
-
+            
             # Log order response
             log_conversation(call.id, "order_response", bot_response=order_response)
 
@@ -1225,16 +1225,16 @@ def handle_order_confirm():
                             )
                             promised_date = None
 
-                    order = Order(
-                        call_id=call.id,
-                        order_number=order_number,
+            order = Order(
+                call_id=call.id,
+                order_number=order_number,
                         status="Overdue Delivery",
                         notes=f"Order found: {order_data.get('invoice_number', 'N/A')} - Delivery overdue, transferred to manager",
                         promised_delivery_date=promised_date,
-                    )
+            )
                     try:
-                        db.session.add(order)
-                        db.session.commit()
+            db.session.add(order)
+            db.session.commit()
                     except Exception as e:
                         logger.error(
                             f"Error saving overdue order to database: {str(e)}"
@@ -1297,10 +1297,10 @@ def handle_order_confirm():
                 logger.error(f"Error saving order to database: {str(e)}")
                 db.session.rollback()
                 # Continue execution even if database save fails
-
+            
             # Simulate processing time
             response.pause(length=2)
-
+            
             # Ensure status_response is not None
             if not status_response:
                 logger.error(f"status_response is None for order {order_number}")
@@ -1318,7 +1318,7 @@ def handle_order_confirm():
                     "neural" if Config.VOICE_NAME.startswith("polly.") else "standard"
                 ),
             )
-
+            
             # Log status response
             log_conversation(call.id, "status_response", bot_response=status_response)
 
@@ -1335,7 +1335,7 @@ def handle_order_confirm():
                     "neural" if Config.VOICE_NAME.startswith("polly.") else "standard"
                 ),
             )
-
+            
             gather = response.gather(
                 input="dtmf",
                 timeout=10,
@@ -1343,26 +1343,26 @@ def handle_order_confirm():
                 action="/webhook/voice_message",
                 method="POST",
             )
-
+            
             # If no response, say goodbye
             if language == "de":
                 response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
             else:
                 response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
             response.hangup()
-
+            
         elif confirmation == "2":  # No - not confirmed
             logger.info(f"Order {order_number} not confirmed by {caller_number}")
-
+            
             # Log rejection
             log_conversation(call.id, "order_rejected", user_input="2")
-
+            
             # Ask for order number again
             if language == "de":
                 retry_response = "Verstanden. Bitte geben Sie Ihre Rechnungsnummer erneut über die Tastatur ein. Drücken Sie die Raute-Taste # wenn Sie fertig sind."
             else:
                 retry_response = "Understood. Please enter your order number again using the keypad. Press the hash key # when you are finished."
-
+            
             response.say(
                 retry_response,
                 voice=Config.VOICE_NAME,
@@ -1370,12 +1370,12 @@ def handle_order_confirm():
                     "neural" if Config.VOICE_NAME.startswith("polly.") else "standard"
                 ),
             )
-
+            
             # Log retry response
             log_conversation(
                 call.id, "order_retry_request", bot_response=retry_response
             )
-
+            
             # Ask for order number again
             gather = response.gather(
                 input="dtmf",
@@ -1384,32 +1384,32 @@ def handle_order_confirm():
                 action="/webhook/order",
                 method="POST",
             )
-
+            
             # If no response, say goodbye
             if language == "de":
                 response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
             else:
                 response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
             response.hangup()
-
+            
             # Return early - no order to save, no status_response needed
             return Response(str(response), mimetype="text/xml")
-
+            
         else:  # Invalid confirmation
             logger.warning(
                 f"Invalid confirmation '{confirmation}' from {caller_number}"
             )
-
+            
             # Log invalid confirmation
             log_conversation(call.id, "invalid_confirmation", user_input=confirmation)
-
+            
             # Ask for confirmation again
             formatted_number = format_order_number_for_speech(order_number)
             if language == "de":
                 invalid_response = f"Entschuldigung, ich habe Ihre Antwort nicht verstanden. Sie haben die Rechnungsnummer {formatted_number} eingegeben. Ist das korrekt? Drücken Sie 1 für Ja oder 2 für Nein."
             else:
                 invalid_response = f"Sorry, I didn't understand your response. You have entered order number {formatted_number}. Is this correct? Press 1 for Yes or 2 for No."
-
+            
             response.say(
                 invalid_response,
                 voice=Config.VOICE_NAME,
@@ -1417,12 +1417,12 @@ def handle_order_confirm():
                     "neural" if Config.VOICE_NAME.startswith("polly.") else "standard"
                 ),
             )
-
+            
             # Log invalid response
             log_conversation(
                 call.id, "invalid_confirmation_response", bot_response=invalid_response
             )
-
+            
             # Gather confirmation again
             gather = response.gather(
                 input="dtmf",
@@ -1431,19 +1431,19 @@ def handle_order_confirm():
                 action="/webhook/order_confirm",
                 method="POST",
             )
-
+            
             # If no response, say goodbye
             if language == "de":
                 response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
             else:
                 response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
             response.hangup()
-
+        
             # Return early - no order to save, no status_response needed
             return Response(str(response), mimetype="text/xml")
 
         return Response(str(response), mimetype="text/xml")
-
+        
     except Exception as e:
         logger.error(f"Error handling order confirmation: {str(e)}")
         response = VoiceResponse()
@@ -1462,18 +1462,18 @@ def handle_help():
         speech_result = request.form.get("SpeechResult", "").lower().strip()
         caller_number = request.form.get("From", "")
         language = detect_language(caller_number)
-
+        
         logger.info(f"Help request from {caller_number}: {speech_result}")
-
+        
         response = VoiceResponse()
-
+        
         # Check if they need more help
         if any(word in speech_result for word in ["ja", "yes", "jawohl", "sure", "ok"]):
             if language == "de":
                 help_response = "Gerne! Womit kann ich Ihnen noch helfen? Sie können nach dem Status einer anderen Bestellung fragen oder andere Fragen stellen."
             else:
                 help_response = "Of course! How else can I help you? You can ask about the status of another order or ask other questions."
-
+            
             response.say(
                 help_response,
                 voice=Config.VOICE_NAME,
@@ -1481,13 +1481,13 @@ def handle_help():
                     "neural" if Config.VOICE_NAME.startswith("polly.") else "standard"
                 ),
             )
-
+            
             # Ask for order number again
             if language == "de":
                 order_prompt = "Wenn Sie den Status einer anderen Bestellung erfahren möchten, diktieren Sie bitte die Rechnungsnummer."
             else:
                 order_prompt = "If you would like to know the status of another order, please dictate the order number."
-
+            
             # Configure speech recognition with proper language and model
             # Use de-DE format for German (not just "de")
             # Use googlev2_telephony or deepgram_nova-3 for better German support
@@ -1495,7 +1495,7 @@ def handle_help():
             # Use Google STT V2 for better German recognition, or Deepgram Nova-3
             # Note: Check Twilio console to ensure these providers are enabled
             speech_model = "googlev2_telephony"  # Supports de-DE well
-
+            
             gather = response.gather(
                 input="speech",
                 timeout=10,
@@ -1505,14 +1505,14 @@ def handle_help():
                 action="/webhook/order",
                 method="POST",
             )
-
+            
             # If no response, say goodbye
             if language == "de":
                 response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
             else:
                 response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
             response.hangup()
-
+            
         else:
             # They don't need more help
             if language == "de":
@@ -1528,9 +1528,9 @@ def handle_help():
                 ),
             )
             response.hangup()
-
+        
         return Response(str(response), mimetype="text/xml")
-
+        
     except Exception as e:
         logger.error(f"Error handling help: {str(e)}")
         response = VoiceResponse()
@@ -1554,7 +1554,7 @@ def dashboard():
     processing_calls = Call.query.filter_by(status=CallStatus.PROCESSING).count()
     problem_calls = Call.query.filter_by(status=CallStatus.PROBLEM).count()
     handled_calls = Call.query.filter_by(status=CallStatus.HANDLED).count()
-
+    
     stats = {
         "total_calls": total_calls,
         "completed_calls": completed_calls,
@@ -1562,10 +1562,10 @@ def dashboard():
         "problem_calls": problem_calls,
         "handled_calls": handled_calls,
     }
-
+    
     # Get recent calls
     recent_calls = Call.query.order_by(desc(Call.created_at)).limit(10).all()
-
+    
     return render_template("dashboard.html", stats=stats, recent_calls=recent_calls)
 
 
@@ -1576,24 +1576,24 @@ def calls():
     status_filter = request.args.get("status")
     language_filter = request.args.get("language")
     phone_filter = request.args.get("phone")
-
+    
     # Build query
     query = Call.query
-
+    
     if status_filter:
         query = query.filter(Call.status == CallStatus[status_filter])
-
+    
     if language_filter:
         query = query.filter(Call.language == language_filter)
-
+    
     if phone_filter:
         query = query.filter(Call.phone_number.contains(phone_filter))
-
+    
     # Paginate results
     calls = query.order_by(desc(Call.created_at)).paginate(
         page=page, per_page=20, error_out=False
     )
-
+    
     return render_template("calls.html", calls=calls)
 
 
@@ -1607,7 +1607,7 @@ def call_detail(call_id):
         .all()
     )
     orders = Order.query.filter_by(call_id=call_id).all()
-
+    
     return render_template(
         "call_detail.html", call=call, conversations=conversations, orders=orders
     )
@@ -1619,21 +1619,21 @@ def update_call_status_api(call_id):
     try:
         data = request.get_json()
         new_status = data.get("status")
-
+        
         if not new_status or new_status not in [status.name for status in CallStatus]:
             return {"error": "Invalid status"}, 400
-
+        
         call = Call.query.get_or_404(call_id)
         call.status = CallStatus[new_status]
         try:
-            db.session.commit()
-            logger.info(f"Call {call_id} status updated to {new_status}")
+        db.session.commit()
+        logger.info(f"Call {call_id} status updated to {new_status}")
             return {"message": "Status updated successfully", "status": new_status}
         except Exception as db_error:
             logger.error(f"Database error updating call status: {db_error}")
             db.session.rollback()
             return {"error": "Failed to update status"}, 500
-
+        
     except Exception as e:
         logger.error(f"Error updating call status: {e}")
         return {"error": "Failed to update status"}, 500
@@ -1646,19 +1646,19 @@ def update_order_status_api(order_id):
         data = request.get_json()
         new_status = data.get("status")
         notes = data.get("notes", "")
-
+        
         if not new_status:
             return {"error": "Status is required"}, 400
-
+        
         order = Order.query.get_or_404(order_id)
         order.status = new_status
         if notes:
             order.notes = notes
         # Update updated_at timestamp
-        order.updated_at = datetime.now(UTC)
+        order.updated_at = datetime.now(timezone.utc)
         try:
-            db.session.commit()
-            logger.info(f"Order {order_id} status updated to {new_status}")
+        db.session.commit()
+        logger.info(f"Order {order_id} status updated to {new_status}")
             return {
                 "message": "Order status updated successfully",
                 "status": new_status,
@@ -1667,7 +1667,7 @@ def update_order_status_api(order_id):
             logger.error(f"Database error updating order status: {db_error}")
             db.session.rollback()
             return {"error": "Failed to update order status"}, 500
-
+        
     except Exception as e:
         logger.error(f"Error updating order status: {e}")
         return {"error": "Failed to update order status"}, 500
@@ -1680,24 +1680,24 @@ def orders():
     status_filter = request.args.get("status")
     phone_filter = request.args.get("phone")
     order_number_filter = request.args.get("order_number")
-
+    
     # Build query
     query = Order.query.join(Call)
-
+    
     if status_filter:
         query = query.filter(Order.status == status_filter)
-
+    
     if phone_filter:
         query = query.filter(Call.phone_number.contains(phone_filter))
-
+    
     if order_number_filter:
         query = query.filter(Order.order_number.contains(order_number_filter))
-
+    
     # Paginate results
     orders = query.order_by(desc(Order.created_at)).paginate(
         page=page, per_page=20, error_out=False
     )
-
+    
     return render_template("orders.html", orders=orders)
 
 
@@ -2219,7 +2219,7 @@ def handle_transcription():
             # Check for recent email attempts to prevent rate limiting
             # SMTP server may block for 30+ seconds, so we check last 120 seconds to be safe
             # This prevents both failed attempts and too frequent successful sends
-            recent_attempt_threshold = datetime.now(UTC) - timedelta(seconds=120)
+            recent_attempt_threshold = datetime.now(timezone.utc) - timedelta(seconds=120)
 
             # Check for any recent email activity (both attempts and successful sends)
             recent_email_activity = (
@@ -2234,7 +2234,7 @@ def handle_transcription():
 
             if recent_email_activity:
                 time_since_last = (
-                    datetime.now(UTC) - recent_email_activity.timestamp
+                    datetime.now(timezone.utc) - recent_email_activity.timestamp
                 ).total_seconds()
                 logger.warning(
                     f"Recent email activity detected for call {call_sid} "
