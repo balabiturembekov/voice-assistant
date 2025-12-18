@@ -5,3 +5,9 @@ gunicorn==21.2.0
 requests==2.31.0
 openai==1.12.0
 Flask-SQLAlchemy==3.0.5
+
+# Optional: External transcription services for better German transcription
+# Uncomment if you want to use Google Cloud Speech-to-Text:
+# google-cloud-speech>=2.0.0
+# 
+# Deepgram doesn't require additional packages, just API key in environment
