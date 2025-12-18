@@ -287,6 +287,9 @@ Aufnahme anhören: {recording_url}
             
             html_body = f"""
 <html>
+  <head>
+    <meta charset="utf-8">
+  </head>
   <body>
     <h2>Neue Sprachnachricht erhalten</h2>
     <p><strong>Anrufer:</strong> {safe_caller_number}</p>
@@ -330,6 +333,9 @@ Listen to recording: {recording_url}
             
             html_body = f"""
 <html>
+  <head>
+    <meta charset="utf-8">
+  </head>
   <body>
     <h2>New voice message received</h2>
     <p><strong>Caller:</strong> {safe_caller_number}</p>
