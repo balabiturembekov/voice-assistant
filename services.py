@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.utils import formataddr
+from email.header import Header
 from config import Config
 
 logger = logging.getLogger(__name__)
@@ -242,6 +243,10 @@ def send_voice_message_email(
         # Create email message
         msg = MIMEMultipart('alternative')
         
+        # Set charset for email headers
+        charset = getattr(Config, 'EMAIL_CHARSET', 'utf-8')
+        msg.set_charset(charset)
+        
         # Set email headers
         if language == "de":
             subject = f"Neue Sprachnachricht von {caller_number}"
@@ -252,7 +257,8 @@ def send_voice_message_email(
             if order_number:
                 subject = f"New voice message from {caller_number} - Order {order_number}"
         
-        msg['Subject'] = subject
+        # Set Subject header with proper UTF-8 encoding
+        msg['Subject'] = Header(subject, charset)
         msg['From'] = formataddr(("Voice Assistant", sender_email))
         msg['To'] = Config.MAIL_RECIPIENT
         
@@ -344,10 +350,13 @@ Listen to recording: {recording_url}
 </html>
 """
         
-        # Attach both plain text and HTML versions
-        charset = getattr(Config, 'EMAIL_CHARSET', 'utf-8')
+        # Attach both plain text and HTML versions with explicit charset
+        # charset already set above, reuse it
         part1 = MIMEText(text_body, 'plain', charset)
         part2 = MIMEText(html_body, 'html', charset)
+        # Ensure charset is explicitly set in Content-Type headers
+        part1.set_charset(charset)
+        part2.set_charset(charset)
         msg.attach(part1)
         msg.attach(part2)
         
