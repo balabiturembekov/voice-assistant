@@ -47,9 +47,9 @@ def create_or_get_call(call_sid, phone_number, language):
             status=CallStatus.PROCESSING,
         )
         try:
-        db.session.add(call)
-        db.session.commit()
-        logger.info(f"Created new call record: {call_sid}")
+            db.session.add(call)
+            db.session.commit()
+            logger.info(f"Created new call record: {call_sid}")
         except Exception as e:
             logger.error(f"Error creating call record: {str(e)}")
             db.session.rollback()
@@ -70,9 +70,9 @@ def log_conversation(call_id, step, user_input=None, bot_response=None):
         call_id=call_id, step=step, user_input=user_input, bot_response=bot_response
     )
     try:
-    db.session.add(conversation)
-    db.session.commit()
-    logger.info(f"Logged conversation: {step}")
+        db.session.add(conversation)
+        db.session.commit()
+        logger.info(f"Logged conversation: {step}")
     except Exception as e:
         logger.error(f"Error logging conversation: {str(e)}, step: {step}")
         db.session.rollback()
@@ -88,9 +88,9 @@ def update_call_status(call_id, status):
     call = db.session.get(Call, call_id)
     if call:
         try:
-        call.status = status
-        db.session.commit()
-        logger.info(f"Updated call {call_id} status to {status.value}")
+            call.status = status
+            db.session.commit()
+            logger.info(f"Updated call {call_id} status to {status.value}")
         except Exception as e:
             logger.error(f"Error updating call status: {str(e)}, call_id: {call_id}")
             db.session.rollback()
@@ -1125,7 +1125,7 @@ def handle_order_confirm():
         order_number = last_conversation.user_input
         if not order_number:
             logger.error(f"Order number is empty for call {call_sid}")
-        response = VoiceResponse()
+            response = VoiceResponse()
             if language == "de":
                 error_msg = "Entschuldigung, ich konnte die Rechnungsnummer nicht finden. Bitte versuchen Sie es erneut."
             else:
@@ -1225,16 +1225,16 @@ def handle_order_confirm():
                             )
                             promised_date = None
 
-            order = Order(
-                call_id=call.id,
-                order_number=order_number,
+                    order = Order(
+                        call_id=call.id,
+                        order_number=order_number,
                         status="Overdue Delivery",
                         notes=f"Order found: {order_data.get('invoice_number', 'N/A')} - Delivery overdue, transferred to manager",
                         promised_delivery_date=promised_date,
-            )
+                    )
                     try:
-            db.session.add(order)
-            db.session.commit()
+                        db.session.add(order)
+                        db.session.commit()
                     except Exception as e:
                         logger.error(
                             f"Error saving overdue order to database: {str(e)}"
@@ -1626,8 +1626,8 @@ def update_call_status_api(call_id):
         call = Call.query.get_or_404(call_id)
         call.status = CallStatus[new_status]
         try:
-        db.session.commit()
-        logger.info(f"Call {call_id} status updated to {new_status}")
+            db.session.commit()
+            logger.info(f"Call {call_id} status updated to {new_status}")
             return {"message": "Status updated successfully", "status": new_status}
         except Exception as db_error:
             logger.error(f"Database error updating call status: {db_error}")
@@ -1657,8 +1657,8 @@ def update_order_status_api(order_id):
         # Update updated_at timestamp
         order.updated_at = datetime.now(timezone.utc)
         try:
-        db.session.commit()
-        logger.info(f"Order {order_id} status updated to {new_status}")
+            db.session.commit()
+            logger.info(f"Order {order_id} status updated to {new_status}")
             return {
                 "message": "Order status updated successfully",
                 "status": new_status,
