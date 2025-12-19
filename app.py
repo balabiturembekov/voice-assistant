@@ -2048,9 +2048,12 @@ def handle_transcription():
             )
             return Response(status=200)
 
+        # Note: We'll try to send email even if transcription is empty (with URL only)
+        # This ensures email is sent even if transcription fails or is delayed
         if not transcription_text:
-            logger.warning(f"Transcription text is empty for call {call_sid}")
-            return Response(status=200)
+            logger.warning(
+                f"Transcription text is empty for call {call_sid}, but will try to send email with URL only"
+            )
 
         logger.info(
             f"Processing transcription for call {call_sid}, call_id: {call.id}, transcription length: {len(transcription_text)}"
@@ -2245,12 +2248,35 @@ def handle_transcription():
 
             # Send email with full transcription (primary email sending point)
             # This is the main place where email is sent to avoid duplicates
+            # IMPORTANT: Send email even if transcription is empty - at least send with URL
             logger.info(
                 f"handle_transcription: Checking conditions for email sending - "
                 f"transcription_text={'present' if transcription_text else 'missing'}, "
                 f"recording_url={'present' if recording_url else 'missing'}"
             )
-            if transcription_text and recording_url:
+            
+            # Try to get recording_url from recording_status callback if not found yet
+            if not recording_url:
+                # Check recording_status callback data
+                recording_status_convs = (
+                    Conversation.query.filter_by(call_id=call.id)
+                    .filter(Conversation.user_input.like("%Voice message URL:%"))
+                    .order_by(Conversation.timestamp.desc())
+                    .all()
+                )
+                for conv in recording_status_convs:
+                    url_match = re.search(
+                        r"Voice message URL:\s*([^\s\n]+)", conv.user_input or ""
+                    )
+                    if url_match:
+                        recording_url = url_match.group(1).strip()
+                        logger.info(
+                            f"Found recording URL from recording_status callback: {recording_url}"
+                        )
+                        break
+            
+            # Send email if we have recording_url (transcription is optional)
+            if recording_url:
                 try:
                     # Get caller number and language from call
                     caller_number = call.phone_number if call else ""
@@ -2276,11 +2302,17 @@ def handle_transcription():
                             except (ValueError, TypeError):
                                 duration_seconds = 0
 
-                    # Send email with full transcription
+                    # Send email with transcription (or empty if not available)
+                    # Use transcription_text if available, otherwise use placeholder
+                    email_transcription = (
+                        transcription_text
+                        if transcription_text
+                        else "(Transkription nicht verfügbar / Transcription not available)"
+                    )
                     email_sent = send_voice_message_email(
                         caller_number=caller_number,
                         recording_url=recording_url,
-                        transcription_text=transcription_text,
+                        transcription_text=email_transcription,
                         duration_seconds=duration_seconds,
                         language=language,
                         order_number=order_number,
@@ -2315,15 +2347,23 @@ def handle_transcription():
                         exc_info=True,
                     )
             else:
-                # Missing transcription or recording URL - log warning
-                if not transcription_text:
-                    logger.warning(
-                        f"Cannot send email: transcription_text is empty for call {call_sid}"
-                    )
-                if not recording_url:
-                    logger.warning(
-                        f"Cannot send email: recording_url is missing for call {call_sid}"
-                    )
+                # Missing recording URL - this is critical, log detailed error
+                logger.error(
+                    f"Cannot send email: recording_url is missing for call {call_sid}. "
+                    f"transcription_text={'present' if transcription_text else 'missing'}. "
+                    f"Will retry when recording_status callback arrives."
+                )
+                # Log all conversations for debugging
+                all_conv_steps = [
+                    f"{c.step}: {c.user_input[:100] if c.user_input else 'empty'}"
+                    for c in Conversation.query.filter_by(call_id=call.id)
+                    .order_by(Conversation.timestamp.desc())
+                    .limit(10)
+                    .all()
+                ]
+                logger.error(
+                    f"Recent conversations for call {call_sid}: {all_conv_steps}"
+                )
 
         return Response(status=200)
 
@@ -2401,6 +2441,107 @@ def handle_recording_status():
                     )
                 except Exception as e:
                     logger.error(f"External transcription error: {e}", exc_info=True)
+
+            # Save recording URL to conversation for handle_transcription to find it
+            log_conversation(
+                call.id,
+                "recording_status_completed",
+                user_input=f"Voice message URL: {recording_url}",
+            )
+            logger.info(
+                f"Recording status completed for call {call_sid}, URL saved: {recording_url}"
+            )
+
+            # Try to send email immediately if transcription is already available
+            # This is a fallback in case handle_transcription didn't send email
+            transcription_conv = (
+                Conversation.query.filter_by(
+                    call_id=call.id, step="voice_message_recorded"
+                )
+                .order_by(Conversation.timestamp.desc())
+                .first()
+            )
+
+            transcription_text = None
+            if transcription_conv and transcription_conv.user_input:
+                # Try to extract transcription from conversation
+                trans_match = re.search(
+                    r"Transcription:\s*(.+)", transcription_conv.user_input, re.DOTALL
+                )
+                if trans_match:
+                    transcription_text = trans_match.group(1).strip()
+
+            # Check if email was already sent
+            email_already_sent = Conversation.query.filter_by(
+                call_id=call.id, step="email_sent"
+            ).first()
+
+            if not email_already_sent and recording_url:
+                # Try to send email with available transcription (or placeholder)
+                caller_number = call.phone_number if call else ""
+                language = call.language if call and call.language else "de"
+
+                # Get order number if available
+                order_number = None
+                orders = (
+                    Order.query.filter_by(call_id=call.id)
+                    .order_by(Order.created_at.desc())
+                    .first()
+                )
+                if orders:
+                    order_number = orders.order_number
+
+                # Get duration from conversation
+                duration_seconds = 0
+                if transcription_conv and transcription_conv.user_input:
+                    duration_match = re.search(
+                        r"Duration:\s*(\d+)", transcription_conv.user_input or ""
+                    )
+                    if duration_match:
+                        try:
+                            duration_seconds = int(duration_match.group(1))
+                        except (ValueError, TypeError):
+                            duration_seconds = 0
+
+                # Send email (with transcription if available, otherwise placeholder)
+                email_transcription = (
+                    transcription_text
+                    if transcription_text
+                    else "(Transkription nicht verfügbar / Transcription not available)"
+                )
+
+                try:
+                    email_sent = send_voice_message_email(
+                        caller_number=caller_number,
+                        recording_url=recording_url,
+                        transcription_text=email_transcription,
+                        duration_seconds=duration_seconds,
+                        language=language,
+                        order_number=order_number,
+                    )
+                    if email_sent:
+                        logger.info(
+                            f"Successfully sent email from recording_status callback for call {call_sid}"
+                        )
+                        log_conversation(
+                            call.id,
+                            "email_sent",
+                            user_input=f"Email sent to {Config.MAIL_RECIPIENT} (from recording_status)",
+                        )
+                    else:
+                        logger.warning(
+                            f"Email sending returned False from recording_status callback for call {call_sid}"
+                        )
+                        log_conversation(
+                            call.id,
+                            "email_attempt",
+                            user_input=f"Email sending failed from recording_status callback",
+                        )
+                except Exception as e:
+                    logger.error(
+                        f"Error sending email from recording_status callback: {str(e)}",
+                        exc_info=True,
+                    )
 
             # Update order notes with recording info
             orders = (
