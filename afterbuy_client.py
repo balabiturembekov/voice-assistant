@@ -313,6 +313,6 @@ def create_client_from_config(config):
         account_token=os.getenv(
             "AFTERBUY_ACCOUNT_TOKEN", "53217733-1987-4cf8-a065-2c2591e4765c"
         ),
-        user_id=os.getenv("AFTERBUY_USER_ID", "Balabi"),
-        user_password=os.getenv("AFTERBUY_USER_PASSWORD", "Parol4Balabi2025!"),
+        user_id=os.getenv("AFTERBUY_USER_ID", "PhoneBootLisaJV"),
+        user_password=os.getenv("AFTERBUY_USER_PASSWORD", "LisaKaprisJV2025!"),
     )
