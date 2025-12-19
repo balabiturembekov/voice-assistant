@@ -2577,6 +2577,82 @@ def api_health():
     }
 
 
+@app.route("/api/test-email", methods=["POST", "GET"])
+def test_email():
+    """Test email sending endpoint for debugging"""
+    try:
+        from services import send_voice_message_email
+        from config import Config
+        
+        # Get test parameters from request or use defaults
+        if request.method == "POST":
+            data = request.get_json() or {}
+            caller_number = data.get("caller_number", "+499876543210")
+            recording_url = data.get(
+                "recording_url",
+                "https://api.twilio.com/2010-04-01/Accounts/ACxxxxx/Recordings/RE987654321",
+            )
+            transcription_text = data.get(
+                "transcription_text",
+                "Это тестовое сообщение для проверки отправки email.",
+            )
+            duration_seconds = int(data.get("duration_seconds", 10))
+            language = data.get("language", "de")
+            order_number = data.get("order_number", "TEST12345")
+        else:
+            # GET request with defaults
+            caller_number = "+499876543210"
+            recording_url = "https://api.twilio.com/2010-04-01/Accounts/ACxxxxx/Recordings/RE987654321"
+            transcription_text = "Это тестовое сообщение для проверки отправки email."
+            duration_seconds = 10
+            language = "de"
+            order_number = "TEST12345"
+        
+        # Check email configuration
+        config_status = {
+            "MAIL_SERVER": Config.MAIL_SERVER or "NOT SET",
+            "MAIL_PORT": Config.MAIL_PORT,
+            "MAIL_USERNAME": Config.MAIL_USERNAME or "NOT SET",
+            "MAIL_PASSWORD": "SET" if Config.MAIL_PASSWORD else "NOT SET",
+            "MAIL_RECIPIENT": Config.MAIL_RECIPIENT or "NOT SET",
+            "MAIL_USE_SSL": Config.MAIL_USE_SSL,
+            "MAIL_USE_TLS": Config.MAIL_USE_TLS,
+        }
+        
+        logger.info(f"Test email endpoint called with config: {config_status}")
+        
+        # Try to send email
+        result = send_voice_message_email(
+            caller_number=caller_number,
+            recording_url=recording_url,
+            transcription_text=transcription_text,
+            duration_seconds=duration_seconds,
+            language=language,
+            order_number=order_number,
+        )
+        
+        if result:
+            return {
+                "status": "success",
+                "message": "Email sent successfully",
+                "config": config_status,
+            }, 200
+        else:
+            return {
+                "status": "error",
+                "message": "Email sending failed - check logs for details",
+                "config": config_status,
+            }, 500
+            
+    except Exception as e:
+        logger.error(f"Error in test_email endpoint: {str(e)}", exc_info=True)
+        return {
+            "status": "error",
+            "message": f"Error: {str(e)}",
+            "config": config_status if "config_status" in locals() else {},
+        }, 500
+
+
 if __name__ == "__main__":
     with app.app_context():
         db.create_all()

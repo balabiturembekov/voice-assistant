@@ -179,6 +179,17 @@ def send_voice_message_email(
     """
     server = None
     try:
+        # Log function call with all parameters for debugging
+        logger.info(
+            f"send_voice_message_email CALLED with: "
+            f"caller_number={caller_number}, "
+            f"recording_url={'present' if recording_url else 'MISSING'}, "
+            f"transcription_text={'present' if transcription_text else 'MISSING'}, "
+            f"duration_seconds={duration_seconds}, "
+            f"language={language}, "
+            f"order_number={order_number}"
+        )
+        
         # Validate input parameters
         if not caller_number or not caller_number.strip():
             logger.warning("Cannot send email: caller_number is empty")
@@ -229,8 +240,19 @@ def send_voice_message_email(
                 )
 
         # Validate email configuration
+        logger.info(
+            f"Email configuration check: "
+            f"MAIL_RECIPIENT={'SET' if Config.MAIL_RECIPIENT else 'MISSING'}, "
+            f"MAIL_USERNAME={'SET' if Config.MAIL_USERNAME else 'MISSING'}, "
+            f"MAIL_SERVER={'SET' if Config.MAIL_SERVER else 'MISSING'}, "
+            f"MAIL_PASSWORD={'SET' if Config.MAIL_PASSWORD else 'MISSING'}"
+        )
+        
         if not Config.MAIL_RECIPIENT or not Config.MAIL_USERNAME:
-            logger.warning("Email not configured. Skipping email send.")
+            logger.error(
+                f"Email not configured. MAIL_RECIPIENT={Config.MAIL_RECIPIENT}, "
+                f"MAIL_USERNAME={Config.MAIL_USERNAME}. Skipping email send."
+            )
             return False
 
         # Validate MAIL_SERVER is configured
@@ -459,6 +481,11 @@ Listen to recording: {recording_url}
                 )
 
             # Create SMTP connection
+            logger.info(
+                f"Connecting to SMTP server: {Config.MAIL_SERVER}:{Config.MAIL_PORT}, "
+                f"SSL={Config.MAIL_USE_SSL}, TLS={Config.MAIL_USE_TLS}, "
+                f"helo_hostname={helo_hostname or 'system default'}"
+            )
             # If helo_hostname is None, don't specify local_hostname parameter
             if Config.MAIL_USE_SSL:
                 if helo_hostname:
