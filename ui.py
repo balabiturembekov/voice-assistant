@@ -2,6 +2,7 @@
 Template helpers for the console: human labels and status tones (icon + label)
 """
 import re
+from datetime import date
 
 from flask import request, url_for
 
@@ -15,13 +16,26 @@ CALL_STATUS_STYLE = {
     CallStatus.PROBLEM: ("serious", "fa-circle-exclamation"),
 }
 
+# Staff-managed order status
 ORDER_STATUS_STYLE = {
-    "found in afterbuy": ("good", "fa-circle-check"),
     "delivered": ("good", "fa-circle-check"),
     "shipped": ("info", "fa-truck"),
-    "not found": ("warning", "fa-magnifying-glass"),
-    "overdue delivery": ("serious", "fa-triangle-exclamation"),
     "cancelled": ("neutral", "fa-ban"),
+}
+
+LOOKUP_STYLE = {
+    "found": ("good", "fa-circle-check", "Found in Afterbuy"),
+    "not_found": ("warning", "fa-magnifying-glass", "Not found"),
+}
+
+# value -> (tone, icon, label, explanation)
+VERIFICATION_STYLE = {
+    "phone": ("good", "fa-phone", "Phone matched", "Called from the phone number on the order."),
+    "postal_code": ("good", "fa-location-dot", "Postcode matched", "Caller entered the billing postcode."),
+    "pending": ("neutral", "fa-hourglass-half", "Not completed", "Postcode was requested, but the caller hung up."),
+    "failed": ("serious", "fa-shield-halved", "Failed", "Postcode didn't match twice. Lisa shared no details."),
+    "not_possible": ("warning", "fa-circle-question", "Not possible",
+                     "The order has no phone or postcode to check. Lisa shared no details."),
 }
 
 # Conversation.step -> (label, icon, actor); actor is "lisa", "caller" or "system"
@@ -88,8 +102,39 @@ def call_status_style(status):
 
 
 def order_status_style(status):
-    tone, icon = ORDER_STATUS_STYLE.get((status or "").strip().lower(), ("info", "fa-circle-info"))
-    return {"tone": tone, "icon": icon, "label": status or "Unknown"}
+    if not status:
+        return {"tone": "neutral", "icon": "fa-minus", "label": "Not set"}
+    tone, icon = ORDER_STATUS_STYLE.get(status.strip().lower(), ("info", "fa-circle-info"))
+    return {"tone": tone, "icon": icon, "label": status}
+
+
+def lookup_style(result):
+    tone, icon, label = LOOKUP_STYLE.get(result, ("neutral", "fa-minus", "Unknown"))
+    return {"tone": tone, "icon": icon, "label": label}
+
+
+def verification_style(value):
+    tone, icon, label, explanation = VERIFICATION_STYLE.get(
+        value, ("neutral", "fa-minus", "—", "Order was not found, so there was nothing to verify.")
+    )
+    return {"tone": tone, "icon": icon, "label": label, "explanation": explanation}
+
+
+def is_overdue(order):
+    return bool(
+        order.lookup_result == "found"
+        and order.promised_delivery_date
+        and order.promised_delivery_date < date.today()
+        and (order.status or "").strip().lower() not in ("delivered", "cancelled")
+    )
+
+
+def money(amount):
+    """1680.5 -> '1.680,50 €' (German format for the office)"""
+    if amount is None:
+        return "—"
+    text = f"{amount:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
+    return f"{text} €"
 
 
 def step_style(step):
@@ -151,6 +196,10 @@ def register(app):
     app.jinja_env.globals.update(
         call_status_style=call_status_style,
         order_status_style=order_status_style,
+        lookup_style=lookup_style,
+        verification_style=verification_style,
+        is_overdue=is_overdue,
+        money=money,
         step_style=step_style,
         event_detail=event_detail,
         page_url=page_url,

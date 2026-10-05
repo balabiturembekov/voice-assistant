@@ -40,7 +40,10 @@
                     {% for order in orders %}
                     <tr>
                         <td><a class="row-link mono" href="{{ url_for('order_detail', order_id=order.id) }}">{{ order.order_number }}</a></td>
-                        <td class="text-end">{{ ui.order_status(order.status) }}</td>
+                        <td class="text-end">
+                            {{ ui.lookup(order.lookup_result) }}
+                            {% if order.lookup_result == 'found' %}{{ ui.verification(order.verification) }}{% endif %}
+                        </td>
                     </tr>
                     {% endfor %}
                     </tbody>

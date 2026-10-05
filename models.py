@@ -73,8 +73,18 @@ class Conversation(db.Model):
         return f'<Conversation {self.step}: {self.user_input[:50] if self.user_input else "Bot response"}>'
 
 
+LOOKUP_FOUND = "found"
+LOOKUP_NOT_FOUND = "not_found"
+
+VERIFICATION_PHONE = "phone"
+VERIFICATION_POSTAL_CODE = "postal_code"
+VERIFICATION_PENDING = "pending"          # postcode asked, caller never answered
+VERIFICATION_FAILED = "failed"            # postcode wrong twice
+VERIFICATION_NOT_POSSIBLE = "not_possible"  # no phone or postcode on the order
+
+
 class Order(db.Model):
-    """Order tracking model"""
+    """Order number looked up during a call"""
 
     __tablename__ = "orders"
 
@@ -83,9 +93,15 @@ class Order(db.Model):
         db.Integer, db.ForeignKey("calls.id"), nullable=False, index=True
     )
     order_number = db.Column(db.String(50), nullable=False, index=True)
-    status = db.Column(db.String(100), default="In Progress")
+    # What Lisa found in Afterbuy: LOOKUP_FOUND / LOOKUP_NOT_FOUND
+    lookup_result = db.Column(db.String(20))
+    # How the caller was verified: VERIFICATION_* values
+    verification = db.Column(db.String(20))
+    # Status set by staff (e.g. "Shipped"); empty until someone sets it
+    status = db.Column(db.String(100))
+    # Staff notes only
     notes = db.Column(db.Text)
-    promised_delivery_date = db.Column(db.Date)  # Estimated delivery date
+    promised_delivery_date = db.Column(db.Date)  # Lisa's delivery estimate
     created_at = db.Column(db.DateTime, default=utcnow, nullable=False)
     updated_at = db.Column(
         db.DateTime, default=utcnow, onupdate=utcnow, nullable=False

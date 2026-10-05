@@ -8,6 +8,12 @@
 
 {% macro order_status(status) -%}{{ badge(order_status_style(status)) }}{%- endmacro %}
 
+{% macro lookup(result) -%}{{ badge(lookup_style(result)) }}{%- endmacro %}
+
+{% macro verification(value) -%}{{ badge(verification_style(value)) }}{%- endmacro %}
+
+{% macro overdue() -%}<span class="badge-c tone-serious"><i class="fas fa-triangle-exclamation" aria-hidden="true"></i>Overdue</span>{%- endmacro %}
+
 {% macro page_header(title, subtitle=None, crumbs=None) -%}
 <div class="page-header">
     <div>

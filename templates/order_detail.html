@@ -4,10 +4,13 @@
 {% block title %}Order {{ order.order_number }} · Lisa Console{% endblock %}
 
 {% block content %}
+{% set v = verification_style(order.verification) %}
+
 {% call ui.page_header("Order " ~ order.order_number,
-                       "Looked up " ~ (order.created_at | local_time),
+                       "Looked up " ~ (order.created_at | local_time) ~ " during a call from " ~ (order.call.phone_number or "an unknown number"),
                        [("Orders", url_for("orders")), (order.order_number, None)]) %}
-    {{ ui.order_status(order.status) }}
+    {{ ui.lookup(order.lookup_result) }}
+    {% if is_overdue(order) %}{{ ui.overdue() }}{% endif %}
     <button type="button" class="btn-c btn-secondary-c"
             onclick='openOrderStatus({{ order.id }}, {{ order.order_number | tojson }}, {{ (order.status or "") | tojson }})'>
         <i class="fas fa-pen" aria-hidden="true"></i>Update
@@ -16,15 +19,27 @@
 
 <div class="grid-detail">
     <div class="stack">
-        <section class="card-c" aria-labelledby="order-title">
-            <div class="card-c-header"><h2 id="order-title">Order</h2></div>
+        <section class="card-c" aria-labelledby="lookup-title">
+            <div class="card-c-header"><h2 id="lookup-title">Lisa's lookup</h2></div>
             <div class="card-c-body">
                 <dl class="dl">
                     {{ ui.field("Number", order.order_number, mono=True) }}
-                    {{ ui.field("Status", ui.order_status(order.status)) }}
-                    {{ ui.field("Est. delivery", order.promised_delivery_date.strftime('%d.%m.%Y') if order.promised_delivery_date else None) }}
+                    {{ ui.field("Result", ui.lookup(order.lookup_result)) }}
+                    {% if order.lookup_result == 'found' %}
+                    <div class="dl-row">
+                        <dt>Verification</dt>
+                        <dd>{{ ui.verification(order.verification) }}<div class="muted mt-1" style="font-size: 13px;">{{ v.explanation }}</div></dd>
+                    </div>
+                    <div class="dl-row">
+                        <dt>Est. delivery</dt>
+                        <dd>
+                            {{ order.promised_delivery_date.strftime('%d.%m.%Y') if order.promised_delivery_date else '—' }}
+                            {% if is_overdue(order) %} {{ ui.overdue() }}{% endif %}
+                            <div class="muted mt-1" style="font-size: 13px;">Lisa's estimate from the order date and production time, not a confirmed date.</div>
+                        </dd>
+                    </div>
+                    {% endif %}
                     {{ ui.field("Looked up", order.created_at | local_time) }}
-                    {{ ui.field("Updated", order.updated_at | local_time) }}
                 </dl>
             </div>
         </section>
@@ -45,16 +60,66 @@
         </section>
     </div>
 
-    <section class="card-c" aria-labelledby="notes-title">
-        <div class="card-c-header"><h2 id="notes-title">Notes</h2></div>
-        <div class="card-c-body">
-            {% if order.notes %}
-            <p class="notes">{{ order.notes }}</p>
-            {% else %}
-            {{ ui.empty("fa-note-sticky", "No notes yet. Use Update to add one.") }}
+    <div class="stack">
+        {% if order.lookup_result == 'found' %}
+        <section class="card-c" aria-labelledby="afterbuy-title">
+            <div class="card-c-header">
+                <h2 id="afterbuy-title">Afterbuy</h2>
+                <span class="sub">Live data · staff only</span>
+            </div>
+            {% if afterbuy %}
+            <div class="card-c-body">
+                <dl class="dl">
+                    {{ ui.field("Customer", afterbuy.customer) }}
+                    <div class="dl-row">
+                        <dt>Phone</dt>
+                        <dd>
+                            {{ afterbuy.phone or '—' }}
+                            {% if order.verification in ('failed', 'pending') and afterbuy.phone %}
+                            <div class="muted mt-1" style="font-size: 13px;">The caller used {{ order.call.phone_number }}.</div>
+                            {% endif %}
+                        </dd>
+                    </div>
+                    {{ ui.field("Email", afterbuy.email) }}
+                    {{ ui.field("Address", [afterbuy.street, ' '.join([afterbuy.postal_code or '', afterbuy.city or '']).strip(), afterbuy.country] | select | join(', ')) }}
+                    {{ ui.field("Order date", afterbuy.order_date.strftime('%d.%m.%Y') if afterbuy.order_date else None) }}
+                    {{ ui.field("Invoice", afterbuy.invoice_number, mono=True) }}
+                    {{ ui.field("Total", money(afterbuy.total)) }}
+                    {{ ui.field("Paid", money(afterbuy.paid)) }}
+                    <div class="dl-row">
+                        <dt>Open balance</dt>
+                        <dd class="tabular"><strong>{{ money(afterbuy.open) }}</strong></dd>
+                    </div>
+                </dl>
+            </div>
+            {% elif afterbuy_error %}
+            {{ ui.empty("fa-plug-circle-xmark", "Couldn't load this order from Afterbuy right now. Try again in a minute.") }}
             {% endif %}
-        </div>
-    </section>
+        </section>
+        {% endif %}
+
+        <section class="card-c" aria-labelledby="staff-title">
+            <div class="card-c-header">
+                <h2 id="staff-title">Staff</h2>
+                <button type="button" class="btn-c btn-ghost btn-sm-c"
+                        onclick='openOrderStatus({{ order.id }}, {{ order.order_number | tojson }}, {{ (order.status or "") | tojson }})'>
+                    <i class="fas fa-pen" aria-hidden="true"></i>Edit
+                </button>
+            </div>
+            <div class="card-c-body">
+                <dl class="dl">
+                    {{ ui.field("Status", ui.order_status(order.status)) }}
+                    {{ ui.field("Updated", order.updated_at | local_time) }}
+                </dl>
+                <h3 class="form-label" style="margin-top: 16px;">Notes</h3>
+                {% if order.notes %}
+                <p class="notes">{{ order.notes }}</p>
+                {% else %}
+                <p class="muted mb-0" style="font-size: 14px;">No notes yet.</p>
+                {% endif %}
+            </div>
+        </section>
+    </div>
 </div>
 {% endblock %}
 

@@ -31,27 +31,15 @@ def _latest_order(call_id):
     )
 
 
-def _append_order_note(call_id, text):
-    order = _latest_order(call_id)
-    if order:
-        order.notes = f"{order.notes}\n\n{text}" if order.notes else text
-
-
 def upsert_voice_message(call, recording_sid, **fields):
     """Create or update the VoiceMessage for a RecordingSid; empty values are ignored"""
     message = VoiceMessage.query.filter_by(recording_sid=recording_sid).first()
-    is_new = message is None
-    if is_new:
+    if message is None:
         message = VoiceMessage(call_id=call.id, recording_sid=recording_sid)
         db.session.add(message)
     for name, value in fields.items():
         if value not in (None, ""):
             setattr(message, name, value)
-    if is_new and message.recording_url:
-        _append_order_note(
-            call.id,
-            f"Voice message ({message.duration_seconds or 0}s): {message.recording_url}",
-        )
     db.session.commit()
     return message
 
@@ -64,7 +52,6 @@ def set_transcription(message, text, status, source):
     if text:
         message.transcription_text = text
         message.transcription_source = source
-        _append_order_note(message.call_id, f"Voice message transcription: {text}")
     db.session.commit()
     return message
 

@@ -5,9 +5,9 @@
 
 {% block content %}
 {% set args = request.args %}
-{% set filtered = args.get('order_number') or args.get('phone') or args.get('status') %}
+{% set filtered = args.get('order_number') or args.get('phone') or args.get('result') %}
 
-{{ ui.page_header("Orders", "Order numbers callers looked up, with the result Lisa found in Afterbuy.") }}
+{{ ui.page_header("Orders", "Order numbers callers entered, what Lisa found in Afterbuy and how the caller was verified.") }}
 
 <section class="card-c" aria-label="Orders">
     <form class="filters" method="get" role="search">
@@ -24,11 +24,11 @@
             <input type="search" class="form-control" id="phone" name="phone" value="{{ args.get('phone', '') }}" inputmode="tel">
         </div>
         <div>
-            <label class="form-label" for="status">Status</label>
-            <select class="form-select" id="status" name="status">
-                <option value="">All statuses</option>
-                {% for s in statuses %}
-                <option value="{{ s }}" {% if args.get('status') == s %}selected{% endif %}>{{ s }}</option>
+            <label class="form-label" for="result">Result</label>
+            <select class="form-select" id="result" name="result">
+                <option value="">All orders</option>
+                {% for value, label in [('found', 'Found in Afterbuy'), ('not_found', 'Not found'), ('verification_failed', 'Verification failed'), ('overdue', 'Delivery overdue')] %}
+                <option value="{{ value }}" {% if args.get('result') == value %}selected{% endif %}>{{ label }}</option>
                 {% endfor %}
             </select>
         </div>
@@ -45,7 +45,9 @@
                 <tr>
                     <th scope="col">Order</th>
                     <th scope="col">Caller</th>
-                    <th scope="col">Status</th>
+                    <th scope="col">Result</th>
+                    <th scope="col">Verification</th>
+                    <th scope="col">Staff status</th>
                     <th scope="col">Est. delivery</th>
                     <th scope="col">Looked up</th>
                     <th scope="col"><span class="sr-only">Actions</span></th>
@@ -56,7 +58,9 @@
             <tr>
                 <td><a class="row-link mono" href="{{ url_for('order_detail', order_id=order.id) }}"><strong>{{ order.order_number }}</strong></a></td>
                 <td><a class="row-link tabular" href="{{ url_for('call_detail', call_id=order.call_id) }}">{{ order.call.phone_number or 'Unknown' }}</a></td>
-                <td>{{ ui.order_status(order.status) }}</td>
+                <td>{{ ui.lookup(order.lookup_result) }}{% if is_overdue(order) %} {{ ui.overdue() }}{% endif %}</td>
+                <td>{% if order.lookup_result == 'found' %}{{ ui.verification(order.verification) }}{% else %}<span class="muted">—</span>{% endif %}</td>
+                <td>{% if order.status %}{{ ui.order_status(order.status) }}{% else %}<span class="muted">—</span>{% endif %}</td>
                 <td class="tabular">{{ order.promised_delivery_date.strftime('%d.%m.%Y') if order.promised_delivery_date else '—' }}</td>
                 <td class="muted tabular">{{ order.created_at | local_time }}</td>
                 <td class="text-end" style="white-space: nowrap;">
