@@ -3,19 +3,19 @@
 {% block title %}Users - Voice Assistant{% endblock %}
 
 {% block content %}
-<h2 class="mb-4"><i class="fas fa-users me-2"></i>Пользователи</h2>
+<h2 class="mb-4"><i class="fas fa-users me-2"></i>Users</h2>
 
 <div class="card mb-4">
     <div class="card-body">
-        <h5 class="card-title">Новый пользователь</h5>
+        <h5 class="card-title">New user</h5>
         <form method="post" action="{{ url_for('auth.create_user') }}" class="row g-2">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="col-md-4">
-                <input type="text" class="form-control" name="username" placeholder="Логин" required>
+                <input type="text" class="form-control" name="username" placeholder="Username" required>
             </div>
             <div class="col-md-4">
                 <input type="password" class="form-control" name="password"
-                       placeholder="Пароль (мин. 12 символов)" minlength="12"
+                       placeholder="Password (min. 12 characters)" minlength="12"
                        autocomplete="new-password" required>
             </div>
             <div class="col-md-2">
@@ -26,7 +26,7 @@
                 </select>
             </div>
             <div class="col-md-2">
-                <button type="submit" class="btn btn-primary w-100">Создать</button>
+                <button type="submit" class="btn btn-primary w-100">Create</button>
             </div>
         </form>
     </div>
@@ -35,11 +35,11 @@
 <table class="table table-hover align-middle">
     <thead>
         <tr>
-            <th>Логин</th>
-            <th>Роль</th>
-            <th>Статус</th>
-            <th>Последний вход</th>
-            <th>Действия</th>
+            <th>Username</th>
+            <th>Role</th>
+            <th>Status</th>
+            <th>Last sign-in</th>
+            <th>Actions</th>
         </tr>
     </thead>
     <tbody>
@@ -49,9 +49,9 @@
             <td>{{ user.role.value }}</td>
             <td>
                 {% if user.is_active_user %}
-                <span class="badge bg-success">активен</span>
+                <span class="badge bg-success">active</span>
                 {% else %}
-                <span class="badge bg-secondary">отключён</span>
+                <span class="badge bg-secondary">disabled</span>
                 {% endif %}
             </td>
             <td>{{ user.last_login_at.strftime('%d.%m.%Y %H:%M') if user.last_login_at else '—' }}</td>
@@ -59,14 +59,14 @@
                 <form method="post" action="{{ url_for('auth.reset_password', user_id=user.id) }}" class="d-inline-flex gap-1">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="password" class="form-control form-control-sm" name="password"
-                           placeholder="Новый пароль" minlength="12" autocomplete="new-password" required>
-                    <button type="submit" class="btn btn-sm btn-outline-primary">Сменить</button>
+                           placeholder="New password" minlength="12" autocomplete="new-password" required>
+                    <button type="submit" class="btn btn-sm btn-outline-primary">Change</button>
                 </form>
                 {% if user.id != current_user.id %}
                 <form method="post" action="{{ url_for('auth.toggle_user', user_id=user.id) }}" class="d-inline">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button type="submit" class="btn btn-sm {{ 'btn-outline-danger' if user.is_active_user else 'btn-outline-success' }}">
-                        {{ 'Отключить' if user.is_active_user else 'Включить' }}
+                        {{ 'Disable' if user.is_active_user else 'Enable' }}
                     </button>
                 </form>
                 {% endif %}

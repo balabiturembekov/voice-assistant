@@ -19,10 +19,10 @@ def utcnow():
 class CallStatus(enum.Enum):
     """Call status enumeration"""
 
-    PROCESSING = "В обработке"
-    COMPLETED = "Завершен"
-    PROBLEM = "Проблема"
-    HANDLED = "Обработано"
+    PROCESSING = "Processing"
+    COMPLETED = "Completed"
+    PROBLEM = "Problem"
+    HANDLED = "Handled"
 
 
 class Call(db.Model):
@@ -85,7 +85,7 @@ class Order(db.Model):
     order_number = db.Column(db.String(50), nullable=False, index=True)
     status = db.Column(db.String(100), default="In Progress")
     notes = db.Column(db.Text)
-    promised_delivery_date = db.Column(db.Date)  # Дата обещанной доставки
+    promised_delivery_date = db.Column(db.Date)  # Estimated delivery date
     created_at = db.Column(db.DateTime, default=utcnow, nullable=False)
     updated_at = db.Column(
         db.DateTime, default=utcnow, onupdate=utcnow, nullable=False

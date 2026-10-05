@@ -23,10 +23,10 @@
                         <label for="status" class="form-label">Status</label>
                         <select name="status" id="status" class="form-select">
                             <option value="">All Statuses</option>
-                            <option value="PROCESSING" {% if request.args.get('status') == 'PROCESSING' %}selected{% endif %}>В обработке</option>
-                            <option value="COMPLETED" {% if request.args.get('status') == 'COMPLETED' %}selected{% endif %}>Завершен</option>
-                            <option value="PROBLEM" {% if request.args.get('status') == 'PROBLEM' %}selected{% endif %}>Проблема</option>
-                            <option value="HANDLED" {% if request.args.get('status') == 'HANDLED' %}selected{% endif %}>Обработано</option>
+                            <option value="PROCESSING" {% if request.args.get('status') == 'PROCESSING' %}selected{% endif %}>Processing</option>
+                            <option value="COMPLETED" {% if request.args.get('status') == 'COMPLETED' %}selected{% endif %}>Completed</option>
+                            <option value="PROBLEM" {% if request.args.get('status') == 'PROBLEM' %}selected{% endif %}>Problem</option>
+                            <option value="HANDLED" {% if request.args.get('status') == 'HANDLED' %}selected{% endif %}>Handled</option>
                         </select>
                     </div>
                     <div class="col-md-3">
