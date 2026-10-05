@@ -1,0 +1,20 @@
+# Локальная разработка: docker compose -f docker-compose.yml -f compose.dev.yml up -d --build
+# Письма уходят в Mailpit (UI: http://localhost:8025), а не на реальный SMTP
+services:
+  voice-assistant:
+    environment:
+      - EMAIL_HOST=mailpit
+      - EMAIL_PORT=1025
+      - EMAIL_USE_TLS=False
+      - EMAIL_HOST_PASSWORD=
+      - SESSION_COOKIE_SECURE=False
+  worker:
+    environment:
+      - EMAIL_HOST=mailpit
+      - EMAIL_PORT=1025
+      - EMAIL_USE_TLS=False
+      - EMAIL_HOST_PASSWORD=
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "127.0.0.1:8025:8025"

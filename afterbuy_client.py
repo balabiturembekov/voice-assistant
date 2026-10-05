@@ -18,7 +18,9 @@ class AfterbuyClient:
         account_token: str,
         user_id: str,
         user_password: str,
+        timeout=(3, 5),
     ):
+        self.timeout = timeout
         self.partner_id = partner_id
         self.partner_token = partner_token
         self.account_token = account_token
@@ -61,7 +63,7 @@ class AfterbuyClient:
         headers = {"Content-Type": "text/xml"}
         try:
             response = requests.post(
-                self.url, data=xml_data, headers=headers, timeout=30
+                self.url, data=xml_data, headers=headers, timeout=self.timeout
             )
 
             if response.status_code != 200:
@@ -112,7 +114,7 @@ class AfterbuyClient:
         headers = {"Content-Type": "text/xml"}
         try:
             response = requests.post(
-                self.url, data=xml_data, headers=headers, timeout=30
+                self.url, data=xml_data, headers=headers, timeout=self.timeout
             )
 
             if response.status_code != 200:

@@ -1,103 +1,31 @@
 #!/bin/bash
+# Деплой на сервере: ./deploy.sh (из папки проекта)
+set -euo pipefail
+cd "$(dirname "$0")"
 
-# Скрипт для деплоя Voice Assistant на сервер
-# Использование: ./deploy.sh
-
-set -e
-
-echo "🚀 Начинаем деплой Voice Assistant..."
-
-# Проверка наличия .env файла
 if [ ! -f .env ]; then
-    echo "❌ Файл .env не найден!"
-    echo "📝 Скопируйте env.example в .env и заполните переменные:"
-    echo "   cp env.example .env"
-    echo "   nano .env"
+    echo "❌ Нет .env — скопируйте env.example и заполните" >&2
     exit 1
 fi
 
-# Проверка настроек продакшена
-echo "🔍 Проверяем настройки продакшена..."
-if grep -q "FLASK_ENV=production" .env && grep -q "FLASK_DEBUG=False" .env; then
-    echo "✅ Настройки продакшена корректны"
-else
-    echo "⚠️  Внимание: Убедитесь что в .env файле:"
-    echo "   FLASK_ENV=production"
-    echo "   FLASK_DEBUG=False"
-fi
+echo "📥 git pull"
+git pull --ff-only
 
-# Проверка Docker
-if ! command -v docker &> /dev/null; then
-    echo "❌ Docker не установлен!"
-    exit 1
-fi
+echo "💾 Бэкап базы перед обновлением"
+./scripts/backup_db.sh || echo "⚠️  Бэкап не сделан (первый запуск?)"
 
-if ! command -v docker-compose &> /dev/null; then
-    echo "❌ Docker Compose не установлен!"
-    exit 1
-fi
+echo "🔨 Сборка и запуск"
+docker compose up -d --build
 
-# Остановка существующих контейнеров
-echo "🛑 Останавливаем существующие контейнеры..."
-docker-compose down
-
-# Сборка образов
-echo "🔨 Собираем Docker образы..."
-docker-compose build --no-cache
-
-# Запуск сервисов
-echo "🚀 Запускаем сервисы..."
-docker-compose up -d
-
-# Ожидание запуска
-echo "⏳ Ожидаем запуска сервисов..."
-sleep 10
-
-# Проверка статуса
-echo "📊 Проверяем статус контейнеров..."
-docker-compose ps
-
-# Проверка здоровья
-echo "🏥 Проверяем здоровье приложения..."
-if curl -f http://localhost:8283/health > /dev/null 2>&1; then
-    echo "✅ Приложение работает!"
-else
-    echo "❌ Приложение не отвечает!"
-    echo "📋 Логи:"
-    docker-compose logs --tail=20
-    exit 1
-fi
-
-# Создание папки и установка прав для базы данных
-echo "📁 Создаем папку для базы данных..."
-docker-compose exec --user root voice-assistant mkdir -p /home/app
-docker-compose exec --user root voice-assistant chown -R app:app /home/app
-docker-compose exec --user root voice-assistant chmod 755 /home/app
-
-# Создание базы данных вручную
-echo "🗄️ Создаем базу данных..."
-docker-compose exec voice-assistant python -c "
-import sqlite3
-conn = sqlite3.connect('/home/app/voice_assistant.db')
-conn.execute('CREATE TABLE calls (id INTEGER PRIMARY KEY, call_sid TEXT, phone_number TEXT, language TEXT, status TEXT, created_at DATETIME, updated_at DATETIME)')
-conn.execute('CREATE TABLE conversations (id INTEGER PRIMARY KEY, call_id INTEGER, step TEXT, user_input TEXT, bot_response TEXT, timestamp DATETIME)')
-conn.execute('CREATE TABLE orders (id INTEGER PRIMARY KEY, call_id INTEGER, order_number TEXT, status TEXT, notes TEXT, created_at DATETIME, updated_at DATETIME)')
-conn.close()
-print('База данных создана успешно')
-"
-
-# Инициализация базы данных
-echo "🗄️ Инициализируем базу данных..."
-docker-compose exec voice-assistant python init_db.py
-
-echo "🎉 Деплой завершен успешно!"
-echo ""
-echo "📋 Полезные команды:"
-echo "   docker-compose ps                    # Статус контейнеров"
-echo "   docker-compose logs -f               # Просмотр логов"
-echo "   docker-compose restart               # Перезапуск"
-echo "   docker-compose down                  # Остановка"
-echo ""
-echo "🌐 Приложение доступно по адресу:"
-echo "   http://localhost:8283                # Локально"
-echo "   https://lisa.automatonsoft.de        # Через основной Nginx"
+echo "⏳ Проверка здоровья"
+for i in $(seq 1 30); do
+    if curl -fs http://127.0.0.1:8283/health > /dev/null; then
+        curl -s http://127.0.0.1:8283/health; echo
+        echo "✅ Готово"
+        exit 0
+    fi
+    sleep 2
+done
+echo "❌ Приложение не ответило" >&2
+docker compose logs --tail=40 voice-assistant worker >&2
+exit 1
