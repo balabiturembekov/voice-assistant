@@ -32,10 +32,11 @@ MENU_TIMEOUT = 6
 NUMBER_TIMEOUT = 10
 VOICEMAIL_MAX_LENGTH = 120
 
-# Conversation.step values; the dashboard funnel counts these
-EVENT_GREETING = "greeting"
+# Conversation.step values; the dashboard funnel counts these.
+# "ivr_" names differ from the pre-v2 flow so old calls stay out of the funnel
+EVENT_GREETING = "ivr_greeting"
 EVENT_MENU = "menu_choice"
-EVENT_ORDER_INPUT = "order_input"
+EVENT_ORDER_INPUT = "ivr_order_number"
 EVENT_ORDER_FOUND = "order_found"
 EVENT_ORDER_NOT_FOUND = "order_not_found"
 EVENT_VERIFIED = "verified"

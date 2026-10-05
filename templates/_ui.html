@@ -1,0 +1,65 @@
+{# Shared console components. Import with: {% import "_ui.html" as ui %} #}
+
+{% macro badge(style) -%}
+<span class="badge-c tone-{{ style.tone }}"><i class="fas {{ style.icon }}" aria-hidden="true"></i>{{ style.label }}</span>
+{%- endmacro %}
+
+{% macro call_status(status) -%}{{ badge(call_status_style(status)) }}{%- endmacro %}
+
+{% macro order_status(status) -%}{{ badge(order_status_style(status)) }}{%- endmacro %}
+
+{% macro page_header(title, subtitle=None, crumbs=None) -%}
+<div class="page-header">
+    <div>
+        {% if crumbs %}
+        <nav aria-label="Breadcrumb">
+            <ol class="crumbs">
+                {% for label, href in crumbs %}
+                <li>{% if href %}<a href="{{ href }}">{{ label }}</a>{% else %}<span aria-current="page">{{ label }}</span>{% endif %}</li>
+                {% endfor %}
+            </ol>
+        </nav>
+        {% endif %}
+        <h1>{{ title }}</h1>
+        {% if subtitle %}<p>{{ subtitle }}</p>{% endif %}
+    </div>
+    {% if caller %}<div class="page-actions">{{ caller() }}</div>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro pagination(pager, noun="items") -%}
+{% if pager.pages > 1 %}
+<nav class="pager" aria-label="Pagination">
+    <span class="muted">Page {{ pager.page }} of {{ pager.pages }} · {{ pager.total }} {{ noun }}</span>
+    <div class="pager-links">
+        {% if pager.has_prev %}
+        <a class="btn-c btn-ghost" href="{{ page_url(pager.prev_num) }}"><i class="fas fa-chevron-left" aria-hidden="true"></i>Previous</a>
+        {% endif %}
+        {% for num in pager.iter_pages(left_edge=1, right_edge=1, left_current=1, right_current=2) %}
+            {% if num %}
+            <a class="pager-num {% if num == pager.page %}active{% endif %}" href="{{ page_url(num) }}"
+               {% if num == pager.page %}aria-current="page"{% endif %}>{{ num }}</a>
+            {% else %}<span class="muted" aria-hidden="true">…</span>{% endif %}
+        {% endfor %}
+        {% if pager.has_next %}
+        <a class="btn-c btn-ghost" href="{{ page_url(pager.next_num) }}">Next<i class="fas fa-chevron-right" aria-hidden="true"></i></a>
+        {% endif %}
+    </div>
+</nav>
+{% endif %}
+{%- endmacro %}
+
+{% macro empty(icon, text, action_href=None, action_label=None) -%}
+<div class="empty">
+    <i class="fas {{ icon }}" aria-hidden="true"></i>
+    {{ text }}
+    {% if action_href %}<div class="mt-3"><a class="btn-c btn-secondary-c" href="{{ action_href }}">{{ action_label }}</a></div>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro field(label, value, mono=False) -%}
+<div class="dl-row">
+    <dt>{{ label }}</dt>
+    <dd class="{{ 'mono' if mono }}">{{ value if value not in (None, '') else '—' }}</dd>
+</div>
+{%- endmacro %}

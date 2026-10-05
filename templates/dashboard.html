@@ -1,150 +1,211 @@
 {% extends "base.html" %}
 
-{% block title %}Dashboard - Voice Assistant{% endblock %}
+{% block title %}Overview · Lisa Console{% endblock %}
 
 {% block content %}
-<div class="row mb-4">
-    <div class="col-12">
-        <h1><i class="fas fa-tachometer-alt me-2"></i>Dashboard</h1>
-        <p class="text-muted">Voice Assistant Call Analytics</p>
+{% set f = funnel %}
+{% set total = f.total %}
+{% set today_calls = daily[-1][1] %}
+
+<div class="page-header">
+    <div>
+        <h1>Overview</h1>
+        <p>How Lisa handled your calls in the last {{ f.days }} days.</p>
     </div>
+    <span class="pill"><span class="live-dot" aria-hidden="true"></span>Lisa is live</span>
 </div>
 
-<!-- Statistics Cards -->
-<div class="row mb-4">
-    <div class="col-md-3">
-        <div class="card stats-card">
-            <div class="card-body text-center">
-                <i class="fas fa-phone fa-2x mb-2"></i>
-                <h3>{{ stats.total_calls }}</h3>
-                <p class="mb-0">Total Calls</p>
-            </div>
+<!-- KPIs -->
+<section class="grid-kpi" aria-label="Key figures">
+    <div class="card-c kpi">
+        <div class="kpi-label"><span class="kpi-icon" aria-hidden="true"><i class="fas fa-phone"></i></span>Calls</div>
+        <div class="kpi-value">{{ calls_total }}</div>
+        <div class="kpi-hint">{{ today_calls }} today</div>
+    </div>
+    <div class="card-c kpi">
+        <div class="kpi-label"><span class="kpi-icon" aria-hidden="true"><i class="fas fa-wand-magic-sparkles"></i></span>Solved by Lisa</div>
+        <div class="kpi-value">{{ '%d%%' % self_service_rate if self_service_rate is not none else '—' }}</div>
+        <div class="kpi-hint">
+            {% if self_service_rate is not none %}{{ f.self_service }} of {{ total }} calls without staff{% else %}No calls yet{% endif %}
         </div>
     </div>
-    <div class="col-md-3">
-        <div class="card bg-success text-white">
-            <div class="card-body text-center">
-                <i class="fas fa-check-circle fa-2x mb-2"></i>
-                <h3>{{ stats.completed_calls }}</h3>
-                <p class="mb-0">Completed</p>
-            </div>
+    <div class="card-c kpi">
+        <div class="kpi-label"><span class="kpi-icon" aria-hidden="true"><i class="fas fa-headset"></i></span>Sent to team</div>
+        <div class="kpi-value">{{ f.agent_requested }}</div>
+        <div class="kpi-hint">{{ f.agent_connected }} connected{% if f.overdue %} · {{ f.overdue }} overdue deliveries{% endif %}</div>
+    </div>
+    <div class="card-c kpi">
+        <div class="kpi-label"><span class="kpi-icon" aria-hidden="true"><i class="fas fa-microphone-lines"></i></span>Voice messages</div>
+        <div class="kpi-value">{{ f.voicemail }}</div>
+        <div class="kpi-hint">
+            {% if failed_emails %}
+            <span class="badge-c tone-serious"><i class="fas fa-circle-exclamation" aria-hidden="true"></i>{{ failed_emails }} email{{ 's' if failed_emails > 1 }} failed</span>
+            {% else %}
+            All emails delivered
+            {% endif %}
         </div>
     </div>
-    <div class="col-md-3">
-        <div class="card bg-warning text-white">
-            <div class="card-body text-center">
-                <i class="fas fa-clock fa-2x mb-2"></i>
-                <h3>{{ stats.processing_calls }}</h3>
-                <p class="mb-0">Processing</p>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card bg-danger text-white">
-            <div class="card-body text-center">
-                <i class="fas fa-exclamation-triangle fa-2x mb-2"></i>
-                <h3>{{ stats.problem_calls }}</h3>
-                <p class="mb-0">Problems</p>
-            </div>
-        </div>
-    </div>
-</div>
+</section>
 
-<!-- Call Funnel -->
-<div class="row mb-4">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="fas fa-filter me-2"></i>Call Funnel (last {{ funnel.days }} days)</h5>
-            </div>
-            <div class="card-body">
-                {% set total = funnel.total or 1 %}
-                <table class="table table-sm mb-0">
-                    <tbody>
-                        {% for label, value, hint in [
-                            ('Calls', funnel.total, ''),
-                            ('Hung up in main menu', funnel.left_in_menu, 'no choice made'),
-                            ('Entered an order number', funnel.order_input, ''),
-                            ('Order found', funnel.order_found, ''),
-                            ('Status spoken', funnel.status_spoken, ''),
-                            ('Solved without staff', funnel.self_service, 'status heard, no transfer or voicemail'),
-                            ('Delivery overdue', funnel.overdue, ''),
-                            ('Asked for staff', funnel.agent_requested, ''),
-                            ('Connected to staff', funnel.agent_connected, ''),
-                            ('Voicemail', funnel.voicemail, ''),
-                        ] %}
-                        <tr>
-                            <td>{{ label }} {% if hint %}<small class="text-muted">({{ hint }})</small>{% endif %}</td>
-                            <td class="text-end"><strong>{{ value }}</strong></td>
-                            <td style="width: 40%">
-                                <div class="progress" style="height: 8px;">
-                                    <div class="progress-bar" style="width: {{ (100 * value / total) | round(0) }}%"></div>
-                                </div>
-                            </td>
-                            <td class="text-end text-muted" style="width: 4rem">{{ (100 * value / total) | round(0) | int }}%</td>
-                        </tr>
+<div class="grid-2">
+    <!-- Calls per day -->
+    <section class="card-c card-fill" aria-labelledby="chart-title">
+        <div class="card-c-header">
+            <h2 id="chart-title">Calls per day</h2>
+            <span class="sub">Last 14 days</span>
+        </div>
+        <div class="card-c-body">
+            {% set peak = daily | map(attribute=1) | max %}
+            {% set scale = [peak, 2] | max %}
+            {% set scale = scale + (scale % 2) %}
+            <div class="chart-wrap">
+                <div class="chart" aria-hidden="true">
+                    <div class="chart-plot">
+                        <div class="chart-grid">
+                            {% for tick in [scale, scale // 2] %}
+                            <span style="bottom: {{ 100 * tick / scale }}%"><em>{{ tick }}</em></span>
+                            {% endfor %}
+                        </div>
+                        {% for day, count in daily %}
+                        <div class="chart-col" tabindex="0">
+                            <div class="bar {{ 'zero' if count == 0 }}" style="height: {{ 100 * count / scale }}%"></div>
+                            <div class="chart-tip">{{ day.strftime('%a %d %b') }} · <strong>{{ count }}</strong> call{{ 's' if count != 1 }}</div>
+                        </div>
                         {% endfor %}
-                    </tbody>
-                </table>
+                    </div>
+                    <div class="chart-x">
+                        {% for day, count in daily %}
+                        <span>{{ day.strftime('%d.%m') if loop.index0 % 2 == 1 or loop.last else '' }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
             </div>
+            <table class="sr-only">
+                <caption>Calls per day, last 14 days</caption>
+                <thead><tr><th>Date</th><th>Calls</th></tr></thead>
+                <tbody>
+                {% for day, count in daily %}<tr><td>{{ day.strftime('%d.%m.%Y') }}</td><td>{{ count }}</td></tr>{% endfor %}
+                </tbody>
+            </table>
         </div>
-    </div>
+    </section>
+
+    <!-- Funnel -->
+    <section class="card-c" aria-labelledby="funnel-title">
+        <div class="card-c-header">
+            <h2 id="funnel-title">Call journey</h2>
+            <span class="sub">Last {{ f.days }} days</span>
+        </div>
+        <div class="card-c-body">
+            {% set denom = total or 1 %}
+            <div class="funnel">
+                {% for label, value in [
+                    ('Calls', total),
+                    ('Chose an option', total - f.left_in_menu),
+                    ('Entered an order number', f.order_input),
+                    ('Order found', f.order_found),
+                    ('Status shared', f.status_spoken),
+                    ('Solved without staff', f.self_service),
+                ] %}
+                <div class="funnel-row">
+                    <span class="label">{{ label }}</span>
+                    <span class="value">{{ value }}<small>{{ (100 * value / denom) | round | int }}%</small></span>
+                    <div class="funnel-track" aria-hidden="true">
+                        <div class="funnel-fill" style="width: {{ 100 * value / denom }}%"></div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            <p class="funnel-note mb-0">
+                {{ f.left_in_menu }} hung up in the main menu ·
+                {{ f.agent_requested }} sent to team ·
+                {{ f.voicemail }} left a message
+            </p>
+        </div>
+    </section>
 </div>
 
-<!-- Recent Calls -->
-<div class="row">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="fas fa-history me-2"></i>Recent Calls</h5>
-                <a href="/calls" class="btn btn-primary btn-sm">View All</a>
-            </div>
-            <div class="card-body">
-                {% if recent_calls %}
-                    <div class="table-responsive">
-                        <table class="table table-hover">
-                            <thead>
-                                <tr>
-                                    <th>Phone</th>
-                                    <th>Language</th>
-                                    <th>Status</th>
-                                    <th>Time</th>
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for call in recent_calls %}
-                                <tr>
-                                    <td>
-                                        <i class="fas fa-phone me-1"></i>{{ call.phone_number }}
-                                    </td>
-                                    <td>
-                                        <span class="badge bg-info">{{ call.language.upper() }}</span>
-                                    </td>
-                                    <td>
-                                        <span class="badge status-{{ call.status.name.lower() }}">
-                                            {{ call.status.value }}
-                                        </span>
-                                    </td>
-                                    <td>{{ call.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
-                                    <td>
-                                        <a href="/calls/{{ call.id }}" class="btn btn-sm btn-outline-primary">
-                                            <i class="fas fa-eye"></i> View
-                                        </a>
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                {% else %}
-                    <div class="text-center py-4">
-                        <i class="fas fa-phone-slash fa-3x text-muted mb-3"></i>
-                        <p class="text-muted">No calls yet</p>
-                    </div>
-                {% endif %}
-            </div>
+<div class="grid-2">
+    <!-- Recent calls -->
+    <section class="card-c" aria-labelledby="recent-title">
+        <div class="card-c-header">
+            <h2 id="recent-title">Recent calls</h2>
+            <a class="link-c" href="/calls">View all <i class="fas fa-arrow-right" aria-hidden="true"></i></a>
         </div>
-    </div>
+        {% if recent_calls %}
+        <div class="table-wrap">
+            <table class="table-c">
+                <thead>
+                    <tr><th scope="col">Caller</th><th scope="col">Outcome</th><th scope="col">Time</th><th scope="col"><span class="sr-only">Details</span></th></tr>
+                </thead>
+                <tbody>
+                {% for call in recent_calls %}
+                {% set outcome, tone = outcomes[call.id] %}
+                <tr>
+                    <td>
+                        <div class="cell-phone">
+                            <span class="avatar" aria-hidden="true"><i class="fas fa-phone"></i></span>
+                            <span class="tabular">{{ call.phone_number or 'Unknown' }}</span>
+                            <span class="lang">{{ call.language | upper }}</span>
+                        </div>
+                    </td>
+                    <td>
+                        <span class="badge-c tone-{{ tone }}">
+                            <i class="fas {{ {'good': 'fa-circle-check', 'info': 'fa-circle-info', 'warning': 'fa-triangle-exclamation', 'serious': 'fa-circle-exclamation', 'neutral': 'fa-circle'}[tone] }}" aria-hidden="true"></i>{{ outcome }}
+                        </span>
+                    </td>
+                    <td class="muted tabular">{{ call.created_at | local_time }}</td>
+                    <td class="text-end">
+                        <a class="row-link" href="/calls/{{ call.id }}" aria-label="Open call from {{ call.phone_number }}">
+                            <i class="fas fa-chevron-right" aria-hidden="true"></i>
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty"><i class="fas fa-phone-slash" aria-hidden="true"></i>No calls yet. They will appear here as soon as Lisa takes the first one.</div>
+        {% endif %}
+    </section>
+
+    <!-- Voice messages -->
+    <section class="card-c" aria-labelledby="vm-title">
+        <div class="card-c-header">
+            <h2 id="vm-title">Latest voice messages</h2>
+        </div>
+        {% if voice_messages %}
+        <div class="table-wrap">
+            <table class="table-c">
+                <thead><tr><th scope="col">Message</th><th scope="col">Email</th></tr></thead>
+                <tbody>
+                {% for vm in voice_messages %}
+                {% set st = vm.email_status.value %}
+                <tr>
+                    <td>
+                        <a class="row-link" href="/calls/{{ vm.call_id }}">
+                            <strong class="tabular">{{ vm.call.phone_number or 'Unknown' }}</strong>
+                        </a>
+                        <div class="muted" style="font-size: 13px;">
+                            {{ vm.duration_seconds }}s · {{ vm.created_at | local_time }}
+                            {% if vm.transcription_text %} · “{{ vm.transcription_text | truncate(48) }}”{% endif %}
+                        </div>
+                    </td>
+                    <td>
+                        {% set tone = {'sent': 'good', 'failed': 'serious', 'sending': 'info', 'pending': 'neutral'}[st] %}
+                        <span class="badge-c tone-{{ tone }}">
+                            <i class="fas {{ {'sent': 'fa-circle-check', 'failed': 'fa-circle-exclamation', 'sending': 'fa-paper-plane', 'pending': 'fa-clock'}[st] }}" aria-hidden="true"></i>{{ st | capitalize }}
+                        </span>
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty"><i class="fas fa-microphone-slash" aria-hidden="true"></i>No voice messages yet.</div>
+        {% endif %}
+    </section>
 </div>
 {% endblock %}

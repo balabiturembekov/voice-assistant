@@ -1,0 +1,61 @@
+{# Order status editor. Needs: order (id, status, notes) or a JS-set id; statuses for suggestions #}
+<div class="modal fade" id="orderStatusModal" tabindex="-1" aria-labelledby="orderStatusTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <form class="modal-content" id="orderStatusForm">
+            <div class="modal-header">
+                <h2 class="modal-title" id="orderStatusTitle">Update order <span class="mono" id="orderStatusNumber"></span></h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="orderStatusId">
+                <div class="mb-3">
+                    <label for="orderStatusValue" class="form-label">Status</label>
+                    <input type="text" class="form-control" id="orderStatusValue" list="orderStatusOptions" required maxlength="100">
+                    <datalist id="orderStatusOptions">
+                        {% for s in (statuses or []) | list + ['Shipped', 'Delivered', 'Cancelled'] %}<option value="{{ s }}">{% endfor %}
+                    </datalist>
+                </div>
+                <div>
+                    <label for="orderStatusNotes" class="form-label">Notes <span class="muted">(replaces the current notes when filled in)</span></label>
+                    <textarea class="form-control" id="orderStatusNotes" rows="4"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-c btn-ghost" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn-c btn-primary-c">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+<script>
+function openOrderStatus(id, number, status) {
+    document.getElementById('orderStatusId').value = id;
+    document.getElementById('orderStatusNumber').textContent = number;
+    document.getElementById('orderStatusValue').value = status;
+    document.getElementById('orderStatusNotes').value = '';
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('orderStatusModal')).show();
+}
+document.getElementById('orderStatusForm').addEventListener('submit', async function (event) {
+    event.preventDefault();
+    const button = this.querySelector('[type=submit]');
+    const id = document.getElementById('orderStatusId').value;
+    button.disabled = true;
+    try {
+        const response = await fetch(`/api/orders/${id}/status`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                status: document.getElementById('orderStatusValue').value.trim(),
+                notes: document.getElementById('orderStatusNotes').value.trim(),
+            }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Request failed');
+        sessionStorage.setItem('console-toast', 'Order updated');
+        location.reload();
+    } catch (error) {
+        consoleToast('Could not update the order: ' + error.message, 'serious');
+        button.disabled = false;
+    }
+});
+</script>

@@ -205,6 +205,7 @@ def test_call_detail_shows_voice_message(app, client, call, sent_emails):
     transcription(client)
     login(client, "operator")
     html = client.get(f"/calls/{call.id}").get_data(as_text=True)
-    assert "Voice Messages" in html
+    assert "Voice messages" in html
     assert "Hallo, wo ist meine Lieferung?" in html
-    assert ">sent<" in html
+    assert "Email sent" in html
+    assert '<audio class="audio"' in html

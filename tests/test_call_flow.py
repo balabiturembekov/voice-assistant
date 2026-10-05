@@ -354,9 +354,18 @@ def test_dashboard_funnel(client, call, afterbuy, open_hours):
     from tests.conftest import login
 
     afterbuy["24896241"] = order()
+    # A pre-v2 call (old step names) must not be counted
+    legacy = Call(call_sid="CAlegacy", phone_number="+491", language="de")
+    db.session.add(legacy)
+    db.session.commit()
+    db.session.add(Conversation(call_id=legacy.id, step="greeting"))
+    db.session.commit()
+
+    hook(client, "/webhook/voice")
     hook(client, "/webhook/menu?attempt=1", "1")
     hook(client, "/webhook/order-number?attempt=1", "24896241")
     stats = funnel_stats()
+    assert stats["left_in_menu"] == 0
     assert stats["total"] == 1
     assert stats["status_spoken"] == 1
     assert stats["self_service"] == 1
@@ -368,4 +377,27 @@ def test_dashboard_funnel(client, call, afterbuy, open_hours):
 
     login(client, "operator")
     html = client.get("/").get_data(as_text=True)
-    assert "Call Funnel" in html and "Solved without staff" in html
+    assert "Call journey" in html and "Solved without staff" in html and "Status shared" in html
+
+
+def test_dashboard_renders_outcomes_and_chart(client, call, afterbuy):
+    from tests.conftest import login
+
+    afterbuy["24896241"] = order()
+    hook(client, "/webhook/voice")
+    hook(client, "/webhook/menu?attempt=1", "1")
+    hook(client, "/webhook/order-number?attempt=1", "24896241")
+    login(client, "operator")
+    html = client.get("/").get_data(as_text=True)
+    assert "Status shared" in html  # outcome badge of the call
+    assert "Calls per day" in html and "<caption>Calls per day" in html
+    assert 'aria-current="page"' in html  # Overview is active in the sidebar
+
+
+def test_empty_dashboard(client, app):
+    from tests.conftest import login
+
+    login(client, "operator")
+    html = client.get("/").get_data(as_text=True)
+    assert "No calls yet" in html
+    assert "—" in html  # no self-service rate without calls

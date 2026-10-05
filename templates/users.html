@@ -1,78 +1,130 @@
 {% extends "base.html" %}
+{% import "_ui.html" as ui %}
 
-{% block title %}Users - Voice Assistant{% endblock %}
+{% block title %}Users · Lisa Console{% endblock %}
 
 {% block content %}
-<h2 class="mb-4"><i class="fas fa-users me-2"></i>Users</h2>
+{{ ui.page_header("Users", "Who can sign in to the console. Admins can also manage users.") }}
 
-<div class="card mb-4">
-    <div class="card-body">
-        <h5 class="card-title">New user</h5>
-        <form method="post" action="{{ url_for('auth.create_user') }}" class="row g-2">
+<div class="grid-detail">
+    <section class="card-c" aria-labelledby="new-user-title">
+        <div class="card-c-header"><h2 id="new-user-title">Add user</h2></div>
+        <form class="card-c-body stack" method="post" action="{{ url_for('auth.create_user') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <div class="col-md-4">
-                <input type="text" class="form-control" name="username" placeholder="Username" required>
+            <div>
+                <label class="form-label" for="new-username">Username</label>
+                <input type="text" class="form-control" id="new-username" name="username" required
+                       autocomplete="off" autocapitalize="none" spellcheck="false">
             </div>
-            <div class="col-md-4">
-                <input type="password" class="form-control" name="password"
-                       placeholder="Password (min. 12 characters)" minlength="12"
-                       autocomplete="new-password" required>
+            <div>
+                <label class="form-label" for="new-password">Password</label>
+                <input type="password" class="form-control" id="new-password" name="password" required
+                       minlength="12" autocomplete="new-password" aria-describedby="new-password-hint">
+                <div class="muted mt-1" id="new-password-hint" style="font-size: 13px;">At least 12 characters.</div>
             </div>
-            <div class="col-md-2">
-                <select class="form-select" name="role">
+            <div>
+                <label class="form-label" for="new-role">Role</label>
+                <select class="form-select" id="new-role" name="role">
                     {% for role in roles %}
-                    <option value="{{ role.name }}" {% if role.name == 'OPERATOR' %}selected{% endif %}>{{ role.value }}</option>
+                    <option value="{{ role.name }}" {% if role.name == 'OPERATOR' %}selected{% endif %}>{{ role.value | capitalize }}</option>
                     {% endfor %}
                 </select>
             </div>
-            <div class="col-md-2">
-                <button type="submit" class="btn btn-primary w-100">Create</button>
+            <button type="submit" class="btn-c btn-primary-c"><i class="fas fa-user-plus" aria-hidden="true"></i>Add user</button>
+        </form>
+    </section>
+
+    <section class="card-c" aria-labelledby="users-title">
+        <div class="card-c-header">
+            <h2 id="users-title">Team</h2>
+            <span class="sub">{{ users | length }} user{{ 's' if users | length != 1 }}</span>
+        </div>
+        <div class="table-wrap">
+            <table class="table-c">
+                <thead>
+                    <tr>
+                        <th scope="col">User</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Last sign-in</th>
+                        <th scope="col"><span class="sr-only">Actions</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for user in users %}
+                <tr>
+                    <td>
+                        <div class="cell-phone">
+                            <span class="avatar" aria-hidden="true">{{ user.username[:2] }}</span>
+                            <div>
+                                <strong>{{ user.username }}</strong>{% if user.id == current_user.id %} <span class="muted">(you)</span>{% endif %}
+                                <div class="muted" style="font-size: 13px;">{{ user.role.value | capitalize }}</div>
+                            </div>
+                        </div>
+                    </td>
+                    <td>
+                        {% if user.is_active_user %}
+                        {{ ui.badge({'tone': 'good', 'icon': 'fa-circle-check', 'label': 'Active'}) }}
+                        {% else %}
+                        {{ ui.badge({'tone': 'neutral', 'icon': 'fa-ban', 'label': 'Disabled'}) }}
+                        {% endif %}
+                    </td>
+                    <td class="muted tabular">{{ user.last_login_at | local_time if user.last_login_at else 'Never' }}</td>
+                    <td class="text-end" style="white-space: nowrap;">
+                        <button type="button" class="btn-c btn-ghost btn-sm-c"
+                                onclick='openPassword({{ user.id }}, {{ user.username | tojson }})'>
+                            <i class="fas fa-key" aria-hidden="true"></i>Password
+                        </button>
+                        {% if user.id != current_user.id %}
+                        <form method="post" action="{{ url_for('auth.toggle_user', user_id=user.id) }}" class="d-inline">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn-c btn-ghost btn-sm-c"
+                                    {% if user.is_active_user %}onclick="return confirm('Disable {{ user.username }}? They will no longer be able to sign in.')"{% endif %}>
+                                <i class="fas {{ 'fa-user-slash' if user.is_active_user else 'fa-user-check' }}" aria-hidden="true"></i>
+                                {{ 'Disable' if user.is_active_user else 'Enable' }}
+                            </button>
+                        </form>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+</div>
+
+<!-- Reset password -->
+<div class="modal fade" id="passwordModal" tabindex="-1" aria-labelledby="passwordModalTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <form class="modal-content" method="post" id="passwordForm">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="modal-header">
+                <h2 class="modal-title" id="passwordModalTitle">New password for <span id="passwordUser"></span></h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <label class="form-label" for="reset-password">New password</label>
+                <input type="password" class="form-control" id="reset-password" name="password" required
+                       minlength="12" autocomplete="new-password">
+                <div class="muted mt-1" style="font-size: 13px;">At least 12 characters. The user should change it after signing in.</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-c btn-ghost" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn-c btn-primary-c">Set password</button>
             </div>
         </form>
     </div>
 </div>
+{% endblock %}
 
-<table class="table table-hover align-middle">
-    <thead>
-        <tr>
-            <th>Username</th>
-            <th>Role</th>
-            <th>Status</th>
-            <th>Last sign-in</th>
-            <th>Actions</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for user in users %}
-        <tr>
-            <td>{{ user.username }}</td>
-            <td>{{ user.role.value }}</td>
-            <td>
-                {% if user.is_active_user %}
-                <span class="badge bg-success">active</span>
-                {% else %}
-                <span class="badge bg-secondary">disabled</span>
-                {% endif %}
-            </td>
-            <td>{{ user.last_login_at.strftime('%d.%m.%Y %H:%M') if user.last_login_at else '—' }}</td>
-            <td>
-                <form method="post" action="{{ url_for('auth.reset_password', user_id=user.id) }}" class="d-inline-flex gap-1">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <input type="password" class="form-control form-control-sm" name="password"
-                           placeholder="New password" minlength="12" autocomplete="new-password" required>
-                    <button type="submit" class="btn btn-sm btn-outline-primary">Change</button>
-                </form>
-                {% if user.id != current_user.id %}
-                <form method="post" action="{{ url_for('auth.toggle_user', user_id=user.id) }}" class="d-inline">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="btn btn-sm {{ 'btn-outline-danger' if user.is_active_user else 'btn-outline-success' }}">
-                        {{ 'Disable' if user.is_active_user else 'Enable' }}
-                    </button>
-                </form>
-                {% endif %}
-            </td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
+{% block scripts %}
+<script>
+function openPassword(id, username) {
+    const form = document.getElementById('passwordForm');
+    form.action = '/users/' + id + '/password';
+    document.getElementById('passwordUser').textContent = username;
+    form.querySelector('#reset-password').value = '';
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('passwordModal')).show();
+}
+</script>
 {% endblock %}
