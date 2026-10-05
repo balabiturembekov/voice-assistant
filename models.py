@@ -7,6 +7,7 @@ from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import check_password_hash, generate_password_hash
 from datetime import datetime, timezone
 import enum
+import secrets
 
 db = SQLAlchemy()
 
@@ -122,23 +123,44 @@ class UserRole(enum.Enum):
 
 
 class User(UserMixin, db.Model):
-    """Dashboard user"""
+    """Console user"""
 
     __tablename__ = "users"
 
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False, index=True)
+    full_name = db.Column(db.String(120))
+    email = db.Column(db.String(254))
     password_hash = db.Column(db.String(255), nullable=False)
     role = db.Column(db.Enum(UserRole), nullable=False, default=UserRole.OPERATOR)
     is_active_user = db.Column(db.Boolean, nullable=False, default=True)
+    # Set when an admin issues a password; cleared once the user picks their own
+    must_change_password = db.Column(db.Boolean, nullable=False, default=False)
+    # Part of the session cookie id; rotating it signs the user out everywhere
+    session_token = db.Column(db.String(64), nullable=False, default=lambda: secrets.token_hex(16))
     created_at = db.Column(db.DateTime, default=utcnow, nullable=False)
+    created_by_id = db.Column(db.Integer, db.ForeignKey("users.id"))
+    password_changed_at = db.Column(db.DateTime)
     last_login_at = db.Column(db.DateTime)
 
-    def set_password(self, password):
+    created_by = db.relationship("User", remote_side=[id])
+
+    def set_password(self, password, temporary=False):
+        """Store a new password and sign the user out of all other sessions"""
         self.password_hash = generate_password_hash(password)
+        self.must_change_password = temporary
+        self.password_changed_at = utcnow()
+        self.rotate_session()
 
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
+
+    def rotate_session(self):
+        self.session_token = secrets.token_hex(16)
+
+    def get_id(self):
+        # Flask-Login stores this in the session; it changes when the token rotates
+        return f"{self.id}:{self.session_token}"
 
     @property
     def is_active(self):
@@ -148,8 +170,36 @@ class User(UserMixin, db.Model):
     def is_admin(self):
         return self.role == UserRole.ADMIN
 
+    @property
+    def display_name(self):
+        return self.full_name or self.username
+
+    @property
+    def initials(self):
+        parts = (self.full_name or self.username).split()
+        letters = "".join(p[0] for p in parts[:2]) if len(parts) > 1 else parts[0][:2]
+        return letters.upper()
+
     def __repr__(self):
         return f"<User {self.username} ({self.role.value})>"
+
+
+class AuditEvent(db.Model):
+    """Security-relevant actions in the console (who did what to whom)"""
+
+    __tablename__ = "audit_events"
+
+    id = db.Column(db.Integer, primary_key=True)
+    action = db.Column(db.String(40), nullable=False, index=True)
+    actor_id = db.Column(db.Integer, db.ForeignKey("users.id"))
+    target_id = db.Column(db.Integer, db.ForeignKey("users.id"))
+    # Username as typed for failed sign-ins (no account may exist)
+    detail = db.Column(db.String(255))
+    ip_address = db.Column(db.String(45))
+    created_at = db.Column(db.DateTime, default=utcnow, nullable=False, index=True)
+
+    actor = db.relationship("User", foreign_keys=[actor_id])
+    target = db.relationship("User", foreign_keys=[target_id])
 
 
 class EmailStatus(enum.Enum):
