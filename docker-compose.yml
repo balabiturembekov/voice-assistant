@@ -33,6 +33,9 @@ services:
     build: .
     <<: *app-env
     command: ["rq", "worker", "--with-scheduler", "--url", "redis://redis:6379/0", "default"]
+    # The image healthcheck curls the web port, which the worker doesn't have
+    healthcheck:
+      disable: true
     depends_on:
       postgres:
         condition: service_healthy

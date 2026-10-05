@@ -88,6 +88,14 @@ python app.py
 ошибке SMTP. Если транскрипция не пришла за `VOICE_EMAIL_FALLBACK_DELAY` секунд
 (по умолчанию 300), письмо уходит без неё. Статус письма виден на странице звонка.
 
+**Локальная разработка** (письма уходят в Mailpit, а не на реальный SMTP):
+```bash
+cp env.development .env   # заполнить SECRET_KEY, POSTGRES_PASSWORD и т.д.
+docker compose -f docker-compose.yml -f compose.dev.yml up -d --build
+# приложение: http://127.0.0.1:8283, письма: http://127.0.0.1:8025
+docker compose exec voice-assistant flask --app app create-user admin --role admin
+```
+
 **Эксплуатация:**
 - `./deploy.sh`: git pull, бэкап, сборка, проверка `/health`.
 - `scripts/backup_db.sh`: дамп Postgres в `./backups` (хранится 14 дней).
