@@ -11,6 +11,7 @@ from config import Config, missing_settings
 from models import db, Call, Conversation, Order, CallStatus, User, UserRole, utcnow
 from auth import auth_bp
 from security import init_security, exempt_webhooks_from_csrf
+from voice import apply_voice
 from sqlalchemy import desc, text
 from afterbuy_client import AfterbuyClient
 from jobs_queue import cache_get, cache_set, get_redis
@@ -62,6 +63,7 @@ db.init_app(app)
 migrate = Migrate(app, db)
 init_security(app)
 app.register_blueprint(auth_bp)
+app.after_request(apply_voice)
 
 
 def create_or_get_call(call_sid, phone_number, language):
@@ -255,12 +257,12 @@ def get_consent_prompts(language):
     """Get consent prompts for different languages"""
     prompts = {
         "de": {
-            "yes": "Drücken Sie die 1 für Ja oder die 2 für Nein.",
+            "yes": "Sind Sie damit einverstanden? Dann drücken Sie bitte die 1. Wenn nicht, drücken Sie die 2.",
             "yes_option": "1",
             "no_option": "2",
         },
         "en": {
-            "yes": "Press 1 for Yes or 2 for No.",
+            "yes": "Do you agree? Then please press 1. If not, press 2.",
             "yes_option": "1",
             "no_option": "2",
         },
@@ -425,6 +427,31 @@ def calculate_production_delivery_dates(order_date_str, country_code="DE"):
         }
 
 
+def parse_amount(text):
+    """Afterbuy amount ('1.680,50', '1680,50' or '1680.50') -> float, None if invalid"""
+    if not text:
+        return None
+    value = str(text).strip()
+    if "," in value and "." in value:
+        value = value.replace(".", "").replace(",", ".")
+    else:
+        value = value.replace(",", ".")
+    try:
+        return float(value)
+    except ValueError:
+        logger.warning(f"Cannot parse amount: {text!r}")
+        return None
+
+
+def euro_for_speech(amount, language="de"):
+    """1680.5 -> '1680 Euro und 50 Cent' (TTS reads it naturally, no 'Komma')"""
+    cents_total = int(round(amount * 100))
+    euros, cents = divmod(cents_total, 100)
+    if language == "de":
+        return f"{euros} Euro" + (f" und {cents} Cent" if cents else "")
+    return f"{euros} euros" + (f" and {cents} cents" if cents else "")
+
+
 def format_order_status_for_speech(order_data, language="de", dates_info=None):
     """
     Format order status information for speech output
@@ -473,33 +500,8 @@ def format_order_status_for_speech(order_data, language="de", dates_info=None):
         if dates_info and "promised_delivery_date" in dates_info:
             order_data["promised_delivery_date"] = dates_info["promised_delivery_date"]
 
-    # Format amounts (remove commas for speech)
-    # AfterBuy uses commas as thousand separators, so we need to handle this properly
-    already_paid_clean = already_paid.replace(",", "")
-    full_amount_clean = full_amount.replace(",", "")
-
-    # Convert to proper format for speech (e.g., 1680 instead of 168000)
-    try:
-        # Parse the original amounts correctly
-        already_paid_parsed = float(already_paid.replace(",", "."))
-        full_amount_parsed = float(full_amount.replace(",", "."))
-
-        # Format for speech (remove decimal if it's .00)
-        already_paid_clean = (
-            str(int(already_paid_parsed))
-            if already_paid_parsed == int(already_paid_parsed)
-            else str(already_paid_parsed)
-        )
-        full_amount_clean = (
-            str(int(full_amount_parsed))
-            if full_amount_parsed == int(full_amount_parsed)
-            else str(full_amount_parsed)
-        )
-    except (ValueError, TypeError) as e:
-        logger.warning(
-            f"Error parsing payment amounts: {e}, already_paid={already_paid}, full_amount={full_amount}"
-        )
-        pass
+    already_paid_value = parse_amount(already_paid) or 0.0
+    full_amount_value = parse_amount(full_amount) or 0.0
 
     if language == "de":
         # Format order ID for speech
@@ -523,19 +525,31 @@ def format_order_status_for_speech(order_data, language="de", dates_info=None):
         delivery_date_start = dates_info.get("delivery_date_start", "N/A")
         delivery_date_end = dates_info.get("delivery_date_end", "N/A")
 
-        status_text = f"""Ihr Auftrag {order_id_formatted}:
-Sie haben für Ihren Auftrag insgesamt {already_paid_clean} Euro.
-Der gesamte Rechnungsbetrag beträgt {full_amount_clean} Euro.
-
-Der Auftrag wurde durch den Kunden {customer_name} erteilt.
-Ihr Auftrag wurde am {order_date_formatted} angenommen und am {production_start_date} an die Produktion übergeben.
-
-Ihre Ware befindet sich derzeit in der Produktion und hat eine voraussichtliche Lieferzeit von {production_min_weeks} bis {production_max_weeks} Wochen.
-
-Wir erwarten die Lieferung in der Kalenderwoche {delivery_week}/{delivery_year}, also in der Woche vom {delivery_date_start} bis {delivery_date_end}.
-
-Wir freuen uns, Ihnen ein hochwertiges Produkt liefern zu dürfen,
-und halten Sie selbstverständlich über den weiteren Verlauf auf dem Laufenden."""
+        sentences = [f"Ihr Auftrag {order_id_formatted}."]
+        if full_amount_value:
+            sentences.append(
+                f"Bisher haben Sie {euro_for_speech(already_paid_value, 'de')} bezahlt. "
+                f"Der Rechnungsbetrag beträgt insgesamt {euro_for_speech(full_amount_value, 'de')}."
+            )
+        if customer_name:
+            sentences.append(f"Der Auftrag läuft auf den Namen {customer_name}.")
+        sentences.append(
+            f"Ihr Auftrag wurde am {order_date_formatted} angenommen "
+            f"und am {production_start_date} an die Produktion übergeben."
+        )
+        sentences.append(
+            "Ihre Ware befindet sich derzeit in der Produktion. "
+            f"Die voraussichtliche Lieferzeit beträgt {production_min_weeks} bis {production_max_weeks} Wochen."
+        )
+        sentences.append(
+            f"Wir erwarten die Lieferung in Kalenderwoche {delivery_week}, "
+            f"also zwischen dem {delivery_date_start} und dem {delivery_date_end}."
+        )
+        sentences.append(
+            "Wir freuen uns, Ihnen ein hochwertiges Produkt liefern zu dürfen, "
+            "und halten Sie über den weiteren Verlauf auf dem Laufenden."
+        )
+        status_text = " ".join(sentences)
 
     else:
         status_text = (
@@ -543,7 +557,10 @@ und halten Sie selbstverständlich über den weiteren Verlauf auf dem Laufenden.
         )
 
         if memo_data.get("amount_value", 0) > 0:
-            status_text += f"{already_paid_clean} Euros have been paid out of {full_amount_clean} Euros total. "
+            status_text += (
+                f"{euro_for_speech(already_paid_value, 'en')} have been paid "
+                f"out of {euro_for_speech(full_amount_value, 'en')} in total. "
+            )
             if memo_data.get("payment_percent"):
                 status_text += f"This represents a {memo_data['payment_percent']} percent down payment. "
 
@@ -574,16 +591,10 @@ def handle_incoming_call():
         # Create TwiML response
         response = VoiceResponse()
         
-        # Use static greeting text
-        if language == "de":
-            # greeting = "Hallo, Sie sprechen mit Liza, Ihrem Sprachassistenten. Dürfen wir Ihr Gespräch zur Qualitätsverbesserung verarbeiten?"
-            greeting = get_greeting_message(language)
-        else:
-            greeting = get_greeting_message(language)
+        greeting = get_greeting_message(language)
         
         # Speak the greeting
-        logger.info(f"Using voice: {Config.VOICE_NAME}")
-        response.say(greeting, language=language, voice=Config.VOICE_NAME)
+        response.say(greeting)
         
         # Log greeting conversation
         log_conversation(call.id, "greeting", bot_response=greeting)
@@ -604,15 +615,11 @@ def handle_incoming_call():
         gather.say(
             consent_prompts["yes"],
             language=language,
-            voice=Config.VOICE_NAME,
-            voice_engine=(
-                "neural" if Config.VOICE_NAME.startswith("polly.") else "standard"
-            ),
         )
         
         # If no response, say goodbye
         response.say(
-            get_goodbye_message(language), language=language, voice=Config.VOICE_NAME
+            get_goodbye_message(language), language=language
         )
         response.hangup()
         
@@ -623,7 +630,6 @@ def handle_incoming_call():
         response = VoiceResponse()
         response.say(
             "Sorry, there was an error. Please try again later.",
-            voice=Config.VOICE_NAME,
         )
         response.hangup()
         return Response(str(response), mimetype="text/xml")
@@ -647,7 +653,6 @@ def handle_consent():
             response = VoiceResponse()
             response.say(
                 "Sorry, there was an error. Please try again later.",
-                voice=Config.VOICE_NAME,
             )
             response.hangup()
             return Response(str(response), mimetype="text/xml")
@@ -668,15 +673,11 @@ def handle_consent():
             
             # Use static consent response
             if language == "de":
-                consent_response = "Vielen Dank für Ihre Zustimmung. Bitte teilen Sie mir nun mit, wie ich Ihnen behilflich sein kann."
+                consent_response = "Vielen Dank für Ihre Zustimmung."
             else:
-                consent_response = "Thank you for your consent. I'm Liza and I'm happy to help you. How can I help you today?"
+                consent_response = "Thank you for your consent."
             response.say(
                 consent_response,
-                voice=Config.VOICE_NAME,
-                voice_engine=(
-                    "neural" if Config.VOICE_NAME.startswith("polly.") else "standard"
-                ),
             )
             
             # Log consent response and update status
@@ -687,10 +688,6 @@ def handle_consent():
             order_availability_prompt = get_order_availability_prompt(language)
             response.say(
                 order_availability_prompt,
-                voice=Config.VOICE_NAME,
-                voice_engine=(
-                    "neural" if Config.VOICE_NAME.startswith("polly.") else "standard"
-                ),
             )
 
             # Log availability question
@@ -710,7 +707,7 @@ def handle_consent():
             )
             
             # If no response, say goodbye
-            response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
+            response.say(get_goodbye_message(language))
             response.hangup()
             
         elif dtmf_result == "2":
@@ -721,15 +718,11 @@ def handle_consent():
             
             # Use static consent response
             if language == "de":
-                consent_response = "Danke für Ihren Anruf. Ich helfe Ihnen gerne weiter. Wie kann ich Ihnen behilflich sein?"
+                consent_response = "Kein Problem, ich helfe Ihnen trotzdem gerne weiter."
             else:
-                consent_response = "Thank you for calling. I'm happy to help you. How can I help you today?"
+                consent_response = "No problem, I'm still happy to help you."
             response.say(
                 consent_response,
-                voice=Config.VOICE_NAME,
-                voice_engine=(
-                    "neural" if Config.VOICE_NAME.startswith("polly.") else "standard"
-                ),
             )
             
             # Log consent response and update status
@@ -742,10 +735,6 @@ def handle_consent():
             order_availability_prompt = get_order_availability_prompt(language)
             response.say(
                 order_availability_prompt,
-                voice=Config.VOICE_NAME,
-                voice_engine=(
-                    "neural" if Config.VOICE_NAME.startswith("polly.") else "standard"
-                ),
             )
 
             # Log availability question
@@ -765,7 +754,7 @@ def handle_consent():
             )
 
             # If no response, say goodbye
-            response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
+            response.say(get_goodbye_message(language))
             response.hangup()
             
         else:
@@ -776,16 +765,12 @@ def handle_consent():
             
             # Use static consent response
             if language == "de":
-                invalid_response = "Entschuldigung, ich habe Ihre Antwort nicht verstanden. Drücken Sie die 1 für Ja oder die 2 für Nein."
+                invalid_response = "Entschuldigung, das habe ich nicht verstanden. Bitte drücken Sie die 1 für Ja oder die 2 für Nein."
             else:
                 invalid_response = "Sorry, I didn't understand your response. Press 1 for Yes or 2 for No."
             
             response.say(
                 invalid_response,
-                voice=Config.VOICE_NAME,
-                voice_engine=(
-                    "neural" if Config.VOICE_NAME.startswith("polly.") else "standard"
-                ),
             )
             
             # Log invalid response
@@ -802,9 +787,9 @@ def handle_consent():
             
             # If no response, say goodbye
             if language == "de":
-                response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
+                response.say(get_goodbye_message(language))
             else:
-                response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
+                response.say(get_goodbye_message(language))
             response.hangup()
         
         return Response(str(response), mimetype="text/xml")
@@ -814,7 +799,6 @@ def handle_consent():
         response = VoiceResponse()
         response.say(
             "Sorry, there was an error. Please try again later.",
-            voice=Config.VOICE_NAME,
         )
         response.hangup()
         return Response(str(response), mimetype="text/xml")
@@ -838,7 +822,6 @@ def handle_order_availability():
             response = VoiceResponse()
             response.say(
                 "Sorry, there was an error. Please try again later.",
-                voice=Config.VOICE_NAME,
             )
             response.hangup()
             return Response(str(response), mimetype="text/xml")
@@ -858,10 +841,6 @@ def handle_order_availability():
             order_input_prompt = get_order_input_prompt(language)
             response.say(
                 order_input_prompt,
-                voice=Config.VOICE_NAME,
-                voice_engine=(
-                    "neural" if Config.VOICE_NAME.startswith("polly.") else "standard"
-                ),
             )
 
             # Log order input request
@@ -879,7 +858,7 @@ def handle_order_availability():
             )
 
             # If no response, say goodbye
-            response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
+            response.say(get_goodbye_message(language))
             response.hangup()
 
         elif dtmf_result == "2":  # User doesn't have order number
@@ -891,10 +870,6 @@ def handle_order_availability():
             transfer_msg = get_no_order_transfer_message(language)
             response.say(
                 transfer_msg,
-                voice=Config.VOICE_NAME,
-                voice_engine=(
-                    "neural" if Config.VOICE_NAME.startswith("polly.") else "standard"
-                ),
             )
 
             # Log transfer
@@ -914,16 +889,12 @@ def handle_order_availability():
             )
 
             if language == "de":
-                invalid_response = "Entschuldigung, ich habe Ihre Antwort nicht verstanden. Haben Sie eine Rechnungsnummer? Drücken Sie die 1 für Ja oder die 2 für Nein."
+                invalid_response = "Entschuldigung, das habe ich nicht verstanden. Haben Sie Ihre Bestell- oder Rechnungsnummer zur Hand? Dann drücken Sie bitte die 1. Wenn nicht, drücken Sie die 2."
             else:
-                invalid_response = "Sorry, I didn't understand your response. Do you have an order number? Press 1 for Yes or 2 for No."
+                invalid_response = "Sorry, I didn't catch that. Do you have your order or invoice number at hand? Then please press 1. If not, press 2."
 
             response.say(
                 invalid_response,
-                voice=Config.VOICE_NAME,
-                voice_engine=(
-                    "neural" if Config.VOICE_NAME.startswith("polly.") else "standard"
-                ),
             )
 
             # Log invalid response
@@ -943,7 +914,7 @@ def handle_order_availability():
             )
 
             # If no response, say goodbye
-            response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
+            response.say(get_goodbye_message(language))
             response.hangup()
 
         return Response(str(response), mimetype="text/xml")
@@ -953,7 +924,6 @@ def handle_order_availability():
         response = VoiceResponse()
         response.say(
             "Sorry, there was an error. Please try again later.",
-            voice=Config.VOICE_NAME,
         )
         response.hangup()
         return Response(str(response), mimetype="text/xml")
@@ -977,7 +947,6 @@ def handle_order():
             response = VoiceResponse()
             response.say(
                 "Sorry, there was an error. Please try again later.",
-                voice=Config.VOICE_NAME,
             )
             response.hangup()
             return Response(str(response), mimetype="text/xml")
@@ -1001,18 +970,12 @@ def handle_order():
                 )
                 
                 if language == "de":
-                    invalid_response = f"Entschuldigung, ich habe '{dtmf_result}' nicht als gültige Rechnungsnummer erkannt. Bitte geben Sie Ihre Rechnungsnummer erneut über die Tastatur ein."
+                    invalid_response = f"Entschuldigung, die Nummer {format_order_number_for_speech(dtmf_result)} konnte ich leider nicht zuordnen. Bitte geben Sie Ihre Nummer noch einmal über die Telefontastatur ein und bestätigen Sie mit der Rautetaste."
                 else:
-                    invalid_response = f"Sorry, I didn't recognize '{dtmf_result}' as a valid order number. Please enter your order number again using the keypad."
+                    invalid_response = f"Sorry, I couldn't match the number {format_order_number_for_speech(dtmf_result)}. Please enter your number again using the keypad, then press the hash key."
                 
                 response.say(
                     invalid_response,
-                    voice=Config.VOICE_NAME,
-                    voice_engine=(
-                        "neural"
-                        if Config.VOICE_NAME.startswith("polly.")
-                        else "standard"
-                    ),
                 )
                 
                 # Log invalid response
@@ -1022,9 +985,9 @@ def handle_order():
                 
                 # Ask for order number again
                 if language == "de":
-                    retry_prompt = "Bitte geben Sie Ihre Rechnungsnummer erneut über die Tastatur ein. Drücken Sie die Raute-Taste # wenn Sie fertig sind."
+                    retry_prompt = "Bitte geben Sie Ihre Nummer noch einmal über die Telefontastatur ein und bestätigen Sie mit der Rautetaste."
                 else:
-                    retry_prompt = "Please enter your order number again using the keypad. Press the hash key # when you are finished."
+                    retry_prompt = "Please enter your number again using the keypad, then press the hash key."
                 
                 gather = response.gather(
                     input="dtmf",
@@ -1036,9 +999,9 @@ def handle_order():
                 
                 # If no response, say goodbye
                 if language == "de":
-                    response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
+                    response.say(get_goodbye_message(language))
                 else:
-                    response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
+                    response.say(get_goodbye_message(language))
                 response.hangup()
                 
                 return Response(str(response), mimetype="text/xml")
@@ -1046,16 +1009,12 @@ def handle_order():
             # Valid order number - ask for confirmation
             formatted_number = format_order_number_for_speech(dtmf_result)
             if language == "de":
-                confirmation_response = f"Sie haben die folgende Rechnungsnummer {formatted_number} eingetippt? Bitte bestätigen Sie durch 1 für Ja oder 2 für Nein."
+                confirmation_response = f"Sie haben die Nummer {formatted_number} eingegeben. Ist das richtig? Dann drücken Sie bitte die 1. Wenn nicht, drücken Sie die 2."
             else:
-                confirmation_response = f"You have entered order number {formatted_number}. Is this correct? Press 1 for Yes or 2 for No."
+                confirmation_response = f"You entered the number {formatted_number}. Is that correct? Then please press 1. If not, press 2."
             
             response.say(
                 confirmation_response,
-                voice=Config.VOICE_NAME,
-                voice_engine=(
-                    "neural" if Config.VOICE_NAME.startswith("polly.") else "standard"
-                ),
             )
             
             # Log confirmation request
@@ -1076,9 +1035,9 @@ def handle_order():
             
             # If no response, say goodbye
             if language == "de":
-                response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
+                response.say(get_goodbye_message(language))
             else:
-                response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
+                response.say(get_goodbye_message(language))
             response.hangup()
             
             return Response(str(response), mimetype="text/xml")
@@ -1090,16 +1049,12 @@ def handle_order():
             )
 
             if language == "de":
-                timeout_msg = "Es scheint, als hätten Sie Schwierigkeiten mit der Eingabe. Ich verbinde Sie mit einem Mitarbeiter, der Ihnen helfen kann. Einen Moment bitte."
+                timeout_msg = "Es scheint, als gäbe es Schwierigkeiten mit der Eingabe. Ich verbinde Sie mit einem Mitarbeiter, der Ihnen weiterhilft. Einen Moment, bitte."
             else:
                 timeout_msg = "It seems you're having trouble with the input. I'm connecting you with a staff member who can help you. Please hold."
 
             response.say(
                 timeout_msg,
-                voice=Config.VOICE_NAME,
-                voice_engine=(
-                    "neural" if Config.VOICE_NAME.startswith("polly.") else "standard"
-                ),
             )
 
             # Log timeout and transfer to manager
@@ -1119,7 +1074,6 @@ def handle_order():
         response = VoiceResponse()
         response.say(
             "Sorry, there was an error. Please try again later.",
-            voice=Config.VOICE_NAME,
         )
         response.hangup()
         return Response(str(response), mimetype="text/xml")
@@ -1143,7 +1097,6 @@ def handle_order_confirm():
             response = VoiceResponse()
             response.say(
                 "Sorry, there was an error. Please try again later.",
-                voice=Config.VOICE_NAME,
             )
             response.hangup()
             return Response(str(response), mimetype="text/xml")
@@ -1163,7 +1116,6 @@ def handle_order_confirm():
             response = VoiceResponse()
             response.say(
                 "Sorry, there was an error. Please try again later.",
-                voice=Config.VOICE_NAME,
             )
             response.hangup()
             return Response(str(response), mimetype="text/xml")
@@ -1176,7 +1128,7 @@ def handle_order_confirm():
                 error_msg = "Entschuldigung, ich konnte die Rechnungsnummer nicht finden. Bitte versuchen Sie es erneut."
             else:
                 error_msg = "Sorry, I couldn't find the order number. Please try again."
-            response.say(error_msg, voice=Config.VOICE_NAME)
+            response.say(error_msg)
             response.hangup()
             return Response(str(response), mimetype="text/xml")
 
@@ -1194,16 +1146,12 @@ def handle_order_confirm():
             # Process confirmed order
             formatted_number = format_order_number_for_speech(order_number)
             if language == "de":
-                order_response = f"Vielen Dank! Ich habe Ihre Rechnungsnummer {formatted_number} bestätigt. Ich prüfe den Status für Sie. Bitte warten Sie einen Moment."
+                order_response = f"Vielen Dank. Ich prüfe jetzt den Status Ihres Auftrags {formatted_number}. Einen kleinen Moment, bitte."
             else:
                 order_response = f"Thank you! I have confirmed your order number {formatted_number}. I am checking the status for you. Please wait a moment."
 
             response.say(
                 order_response,
-                voice=Config.VOICE_NAME,
-                voice_engine=(
-                    "neural" if Config.VOICE_NAME.startswith("polly.") else "standard"
-                ),
             )
             
             # Log order response
@@ -1240,12 +1188,6 @@ def handle_order_confirm():
                     overdue_message = get_overdue_delivery_message(language)
                     response.say(
                         overdue_message,
-                        voice=Config.VOICE_NAME,
-                        voice_engine=(
-                            "neural"
-                            if Config.VOICE_NAME.startswith("polly.")
-                            else "standard"
-                        ),
                     )
 
                     # Log overdue delivery
@@ -1359,10 +1301,6 @@ def handle_order_confirm():
 
             response.say(
                 status_response,
-                voice=Config.VOICE_NAME,
-                voice_engine=(
-                    "neural" if Config.VOICE_NAME.startswith("polly.") else "standard"
-                ),
             )
             
             # Log status response
@@ -1370,16 +1308,12 @@ def handle_order_confirm():
 
             # Ask if they need more help (voice message option)
             if language == "de":
-                help_prompt = "Wenn Sie noch Fragen haben, drücken Sie 1 um eine Nachricht zu hinterlassen, oder drücken Sie 2 um mit einem Mitarbeiter verbunden zu werden."
+                help_prompt = "Wenn Sie noch Fragen haben, können Sie uns eine Nachricht hinterlassen. Drücken Sie dafür bitte die 1. Möchten Sie mit einem Mitarbeiter sprechen, drücken Sie die 2."
             else:
-                help_prompt = "If you have any questions, press 1 to leave a message, or press 2 to speak to a staff member."
+                help_prompt = "If you have any further questions, you can leave us a message. To do so, please press 1. To speak to a member of our team, press 2."
 
             response.say(
                 help_prompt,
-                voice=Config.VOICE_NAME,
-                voice_engine=(
-                    "neural" if Config.VOICE_NAME.startswith("polly.") else "standard"
-                ),
             )
             
             gather = response.gather(
@@ -1392,9 +1326,9 @@ def handle_order_confirm():
             
             # If no response, say goodbye
             if language == "de":
-                response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
+                response.say(get_goodbye_message(language))
             else:
-                response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
+                response.say(get_goodbye_message(language))
             response.hangup()
             
         elif confirmation == "2":  # No - not confirmed
@@ -1405,16 +1339,12 @@ def handle_order_confirm():
             
             # Ask for order number again
             if language == "de":
-                retry_response = "Verstanden. Bitte geben Sie Ihre Rechnungsnummer erneut über die Tastatur ein. Drücken Sie die Raute-Taste # wenn Sie fertig sind."
+                retry_response = "Verstanden. Bitte geben Sie Ihre Nummer noch einmal über die Telefontastatur ein und bestätigen Sie mit der Rautetaste."
             else:
-                retry_response = "Understood. Please enter your order number again using the keypad. Press the hash key # when you are finished."
+                retry_response = "Understood. Please enter your number again using the keypad, then press the hash key."
             
             response.say(
                 retry_response,
-                voice=Config.VOICE_NAME,
-                voice_engine=(
-                    "neural" if Config.VOICE_NAME.startswith("polly.") else "standard"
-                ),
             )
             
             # Log retry response
@@ -1433,9 +1363,9 @@ def handle_order_confirm():
             
             # If no response, say goodbye
             if language == "de":
-                response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
+                response.say(get_goodbye_message(language))
             else:
-                response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
+                response.say(get_goodbye_message(language))
             response.hangup()
             
             # Return early - no order to save, no status_response needed
@@ -1452,16 +1382,12 @@ def handle_order_confirm():
             # Ask for confirmation again
             formatted_number = format_order_number_for_speech(order_number)
             if language == "de":
-                invalid_response = f"Entschuldigung, ich habe Ihre Antwort nicht verstanden. Sie haben die Rechnungsnummer {formatted_number} eingegeben. Ist das korrekt? Drücken Sie 1 für Ja oder 2 für Nein."
+                invalid_response = f"Entschuldigung, das habe ich nicht verstanden. Sie haben die Nummer {formatted_number} eingegeben. Ist das richtig? Dann drücken Sie bitte die 1. Wenn nicht, drücken Sie die 2."
             else:
-                invalid_response = f"Sorry, I didn't understand your response. You have entered order number {formatted_number}. Is this correct? Press 1 for Yes or 2 for No."
+                invalid_response = f"Sorry, I didn't understand your response. You entered the number {formatted_number}. Is that correct? Then please press 1. If not, press 2."
             
             response.say(
                 invalid_response,
-                voice=Config.VOICE_NAME,
-                voice_engine=(
-                    "neural" if Config.VOICE_NAME.startswith("polly.") else "standard"
-                ),
             )
             
             # Log invalid response
@@ -1480,9 +1406,9 @@ def handle_order_confirm():
             
             # If no response, say goodbye
             if language == "de":
-                response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
+                response.say(get_goodbye_message(language))
             else:
-                response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
+                response.say(get_goodbye_message(language))
             response.hangup()
         
             # Return early - no order to save, no status_response needed
@@ -1495,7 +1421,6 @@ def handle_order_confirm():
         response = VoiceResponse()
         response.say(
             "Sorry, there was an error. Please try again later.",
-            voice=Config.VOICE_NAME,
         )
         response.hangup()
         return Response(str(response), mimetype="text/xml")
@@ -1522,17 +1447,13 @@ def handle_help():
             
             response.say(
                 help_response,
-                voice=Config.VOICE_NAME,
-                voice_engine=(
-                    "neural" if Config.VOICE_NAME.startswith("polly.") else "standard"
-                ),
             )
             
             # Ask for order number again
             if language == "de":
-                order_prompt = "Wenn Sie den Status einer anderen Bestellung erfahren möchten, diktieren Sie bitte die Rechnungsnummer."
+                order_prompt = "Wenn Sie den Status eines weiteren Auftrags erfahren möchten, nennen Sie mir bitte die Rechnungsnummer."
             else:
-                order_prompt = "If you would like to know the status of another order, please dictate the order number."
+                order_prompt = "If you would like to know the status of another order, please tell me the order number."
             
             # Configure speech recognition with proper language and model
             # Use de-DE format for German (not just "de")
@@ -1554,9 +1475,9 @@ def handle_help():
             
             # If no response, say goodbye
             if language == "de":
-                response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
+                response.say(get_goodbye_message(language))
             else:
-                response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
+                response.say(get_goodbye_message(language))
             response.hangup()
             
         else:
@@ -1568,10 +1489,6 @@ def handle_help():
 
             response.say(
                 goodbye_response,
-                voice=Config.VOICE_NAME,
-                voice_engine=(
-                    "neural" if Config.VOICE_NAME.startswith("polly.") else "standard"
-                ),
             )
             response.hangup()
         
@@ -1580,7 +1497,7 @@ def handle_help():
     except Exception as e:
         logger.error(f"Error handling help: {str(e)}")
         response = VoiceResponse()
-        response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
+        response.say(get_goodbye_message(language))
         response.hangup()
         return Response(str(response), mimetype="text/xml")
 
@@ -1789,7 +1706,6 @@ def handle_voice_message():
             response = VoiceResponse()
             response.say(
                 "Sorry, there was an error. Please try again later.",
-                voice=Config.VOICE_NAME,
             )
             response.hangup()
             return Response(str(response), mimetype="text/xml")
@@ -1804,16 +1720,12 @@ def handle_voice_message():
             logger.info(f"User {caller_number} wants to leave a voice message")
 
             if language == "de":
-                message_prompt = "Bitte hinterlassen Sie nach dem Signalton eine Nachricht. Drücken Sie die Raute-Taste # wenn Sie fertig sind. Sie erhalten innerhalb von 24 Stunden eine Antwort per E-Mail."
+                message_prompt = "Bitte sprechen Sie Ihre Nachricht nach dem Signalton. Wenn Sie fertig sind, drücken Sie die Rautetaste. Sie erhalten innerhalb von 24 Stunden eine Antwort per E-Mail."
             else:
-                message_prompt = "Please leave a message after the tone. Press the hash key # when you are finished. You will receive a reply by email within 24 hours."
+                message_prompt = "Please leave your message after the tone. When you are finished, press the hash key. You will receive a reply by email within 24 hours."
 
             response.say(
                 message_prompt,
-                voice=Config.VOICE_NAME,
-                voice_engine=(
-                    "neural" if Config.VOICE_NAME.startswith("polly.") else "standard"
-                ),
             )
 
             # Record the message with transcription
@@ -1864,7 +1776,7 @@ def handle_voice_message():
             logger.info(f"User {caller_number} wants to speak to manager")
 
             if language == "de":
-                transfer_msg = "Ich verbinde Sie jetzt mit einem unserer Mitarbeiter. Einen Moment bitte."
+                transfer_msg = "Ich verbinde Sie jetzt mit einem unserer Mitarbeiter. Einen Moment, bitte."
             else:
                 transfer_msg = (
                     "I'm now connecting you with one of our staff. Please hold."
@@ -1872,10 +1784,6 @@ def handle_voice_message():
 
             response.say(
                 transfer_msg,
-                voice=Config.VOICE_NAME,
-                voice_engine=(
-                    "neural" if Config.VOICE_NAME.startswith("polly.") else "standard"
-                ),
             )
 
             # Redirect to manager's phone number
@@ -1891,16 +1799,12 @@ def handle_voice_message():
             )
 
             if language == "de":
-                error_msg = "Entschuldigung, ich habe Ihre Antwort nicht verstanden. Wenn Sie noch Fragen haben, drücken Sie 1. Um mit einem Mitarbeiter verbunden zu werden, drücken Sie 2."
+                error_msg = "Entschuldigung, das habe ich nicht verstanden. Für eine Nachricht drücken Sie bitte die 1, für ein Gespräch mit einem Mitarbeiter die 2."
             else:
-                error_msg = "Sorry, I didn't understand your response. If you have questions, press 1. To speak to a staff member, press 2."
+                error_msg = "Sorry, I didn't catch that. To leave a message, please press 1. To speak to a member of our team, press 2."
 
             response.say(
                 error_msg,
-                voice=Config.VOICE_NAME,
-                voice_engine=(
-                    "neural" if Config.VOICE_NAME.startswith("polly.") else "standard"
-                ),
             )
 
             gather = response.gather(
@@ -1913,9 +1817,9 @@ def handle_voice_message():
 
             # Fallback
             if language == "de":
-                response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
+                response.say(get_goodbye_message(language))
             else:
-                response.say(get_goodbye_message(language), voice=Config.VOICE_NAME)
+                response.say(get_goodbye_message(language))
             response.hangup()
 
         return Response(str(response), mimetype="text/xml")
@@ -1925,7 +1829,6 @@ def handle_voice_message():
         response = VoiceResponse()
         response.say(
             "Sorry, there was an error. Please try again later.",
-            voice=Config.VOICE_NAME,
         )
         response.hangup()
         return Response(str(response), mimetype="text/xml")
@@ -1965,7 +1868,7 @@ def handle_recorded():
 
     if language == "de":
         thank_you = (
-            "Vielen Dank für Ihre Nachricht. Wir melden uns innerhalb von 24 Stunden bei Ihnen. Auf Wiedersehen!"
+            "Vielen Dank für Ihre Nachricht. Wir melden uns innerhalb von 24 Stunden bei Ihnen. Auf Wiederhören!"
             if recorded_ok
             else "Entschuldigung, ich konnte Ihre Nachricht nicht aufnehmen. Bitte versuchen Sie es erneut oder kontaktieren Sie uns direkt."
         )
@@ -2002,8 +1905,6 @@ def handle_recorded():
     response = VoiceResponse()
     response.say(
         thank_you if call else get_goodbye_message(language),
-        voice=Config.VOICE_NAME,
-        voice_engine=("neural" if Config.VOICE_NAME.startswith("polly.") else "standard"),
     )
     response.hangup()
     return Response(str(response), mimetype="text/xml")
