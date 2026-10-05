@@ -424,20 +424,20 @@ Listen to recording: {recording_url}
             # HELO hostname handling
             # IMPORTANT: SMTP servers require HELO to match the actual connecting hostname/IP
             #
-            # ⚠️  ОГРАНИЧЕНИЕ: Этот фикс:
-            # ✅ уберёт HELO mismatch
-            # ✅ снизит spam-score
-            # ❌ НЕ заменяет PTR / SPF / DKIM записи
+            # LIMITATION: this fix
+            #   - removes the HELO hostname mismatch
+            #   - lowers the spam score
+            #   - does NOT replace PTR / SPF / DKIM records
             #
-            # Если PTR запись для IP адреса отсутствует (unknown[IP]), некоторые серверы
-            # всё равно будут отказывать. Для полного решения нужно:
-            # 1. Настроить PTR запись для IP адреса (обратный DNS)
-            # 2. Настроить SPF запись в DNS
-            # 3. Настроить DKIM подпись
-            # 4. Связаться с администратором почтового сервера для настройки
+            # If the sending IP has no PTR record (unknown[IP]), some servers will still
+            # reject mail. A complete fix requires:
+            #   1. a PTR (reverse DNS) record for the IP
+            #   2. an SPF record in DNS
+            #   3. DKIM signing
+            #   4. coordination with the mail server administrator
             #
-            # Если мы подключаемся с IP, который не имеет PTR записи, лучше не указывать
-            # local_hostname вообще - пусть Python использует системный hostname
+            # When connecting from an IP without a PTR record, it is better not to set
+            # local_hostname at all and let Python use the system hostname
             import socket
 
             # Try to get system hostname first

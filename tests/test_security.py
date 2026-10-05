@@ -172,3 +172,16 @@ def test_order_numbers_are_not_masked():
     record = logging.LogRecord("t", logging.INFO, "", 0, "Order 123456789 confirmed", (), None)
     PIIMaskingFilter().filter(record)
     assert record.getMessage() == "Order 123456789 confirmed"
+
+
+def test_login_page_has_no_navigation(client):
+    html = client.get("/login").get_data(as_text=True)
+    assert 'class="navbar' not in html
+    assert 'href="/calls"' not in html
+
+
+def test_failed_login_keeps_username_and_shows_inline_error(client):
+    html = login(client, "admin", "wrong-password").get_data(as_text=True)
+    assert 'role="alert"' in html
+    assert 'value="admin"' in html
+    assert 'aria-invalid="true"' in html

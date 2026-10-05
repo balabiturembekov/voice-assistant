@@ -60,6 +60,11 @@ def _safe_next_url(target):
     return target
 
 
+@auth_bp.app_context_processor
+def inject_now_year():
+    return {"now_year": utcnow().year}
+
+
 @auth_bp.route("/login", methods=["GET", "POST"])
 def login():
     if current_user.is_authenticated:
@@ -69,7 +74,7 @@ def login():
         ip = request.remote_addr or "unknown"
         if _is_throttled(ip):
             logger.warning(f"Login throttled for {ip}")
-            flash("Слишком много попыток входа. Попробуйте позже.", "danger")
+            flash("Too many sign-in attempts. Please try again in 15 minutes.", "danger")
             return render_template("login.html"), 429
 
         username = request.form.get("username", "").strip()
@@ -86,7 +91,7 @@ def login():
 
         _record_failed_login(ip)
         logger.warning(f"Failed login for '{username}' from {ip}")
-        flash("Неверный логин или пароль.", "danger")
+        flash("Incorrect username or password.", "danger")
 
     return render_template("login.html")
 
@@ -112,18 +117,18 @@ def create_user():
     role_name = request.form.get("role", "OPERATOR")
 
     if not username or role_name not in UserRole.__members__:
-        flash("Укажите логин и роль.", "danger")
+        flash("Enter a username and choose a role.", "danger")
     elif len(password) < MIN_PASSWORD_LENGTH:
-        flash(f"Пароль должен быть не короче {MIN_PASSWORD_LENGTH} символов.", "danger")
+        flash(f"The password must be at least {MIN_PASSWORD_LENGTH} characters long.", "danger")
     elif User.query.filter_by(username=username).first():
-        flash("Такой пользователь уже существует.", "danger")
+        flash("A user with this username already exists.", "danger")
     else:
         user = User(username=username, role=UserRole[role_name])
         user.set_password(password)
         db.session.add(user)
         db.session.commit()
         logger.info(f"User {username} created by {current_user.username}")
-        flash(f"Пользователь {username} создан.", "success")
+        flash(f"User {username} created.", "success")
     return redirect(url_for("auth.users"))
 
 
@@ -132,13 +137,13 @@ def create_user():
 def toggle_user(user_id):
     user = db.get_or_404(User, user_id)
     if user.id == current_user.id:
-        flash("Нельзя отключить самого себя.", "danger")
+        flash("You can't disable your own account.", "danger")
     else:
         user.is_active_user = not user.is_active_user
         db.session.commit()
-        state = "включён" if user.is_active_user else "отключён"
+        state = "enabled" if user.is_active_user else "disabled"
         logger.info(f"User {user.username} {state} by {current_user.username}")
-        flash(f"Пользователь {user.username} {state}.", "success")
+        flash(f"User {user.username} {state}.", "success")
     return redirect(url_for("auth.users"))
 
 
@@ -148,10 +153,10 @@ def reset_password(user_id):
     user = db.get_or_404(User, user_id)
     password = request.form.get("password", "")
     if len(password) < MIN_PASSWORD_LENGTH:
-        flash(f"Пароль должен быть не короче {MIN_PASSWORD_LENGTH} символов.", "danger")
+        flash(f"The password must be at least {MIN_PASSWORD_LENGTH} characters long.", "danger")
     else:
         user.set_password(password)
         db.session.commit()
         logger.info(f"Password of {user.username} reset by {current_user.username}")
-        flash(f"Пароль пользователя {user.username} изменён.", "success")
+        flash(f"Password for {user.username} changed.", "success")
     return redirect(url_for("auth.users"))

@@ -1,31 +1,452 @@
 {% extends "base.html" %}
 
-{% block title %}Login - Voice Assistant{% endblock %}
+{% block title %}Sign in · Lisa Console{% endblock %}
 
-{% block content %}
-<div class="row justify-content-center">
-    <div class="col-md-5 col-lg-4">
-        <div class="card mt-5">
-            <div class="card-body p-4">
-                <h4 class="card-title mb-4">
-                    <i class="fas fa-lock me-2"></i>Вход
-                </h4>
-                <form method="post">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <div class="mb-3">
-                        <label for="username" class="form-label">Логин</label>
-                        <input type="text" class="form-control" id="username" name="username"
-                               autocomplete="username" required autofocus>
+{% block body_class %}auth{% endblock %}
+
+{% block head %}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<meta name="color-scheme" content="light dark">
+<style>
+    :root {
+        --bg: #ffffff;
+        --surface: #ffffff;
+        --text: #0f172a;
+        --text-muted: #475569;
+        --border: #e2e8f0;
+        --input-bg: #ffffff;
+        --primary: #4f46e5;
+        --primary-hover: #4338ca;
+        --primary-text: #ffffff;
+        --focus: rgba(79, 70, 229, 0.35);
+        --danger-bg: #fef2f2;
+        --danger-border: #fecaca;
+        --danger-text: #991b1b;
+        --warn-text: #92400e;
+        --panel-bg: #0b1020;
+        --panel-text: #e2e8f0;
+        --panel-muted: #94a3b8;
+        --panel-border: rgba(148, 163, 184, 0.16);
+        --accent: #818cf8;
+        --success: #34d399;
+        --radius: 10px;
+    }
+
+    @media (prefers-color-scheme: dark) {
+        :root {
+            --bg: #0b0f19;
+            --surface: #111827;
+            --text: #f1f5f9;
+            --text-muted: #a3b0c2;
+            --border: #273244;
+            --input-bg: #0f1623;
+            --primary: #6366f1;
+            --primary-hover: #818cf8;
+            --focus: rgba(129, 140, 248, 0.45);
+            --danger-bg: rgba(239, 68, 68, 0.12);
+            --danger-border: rgba(239, 68, 68, 0.35);
+            --danger-text: #fca5a5;
+            --warn-text: #fcd34d;
+            --panel-bg: #060913;
+        }
+    }
+
+    * { box-sizing: border-box; }
+
+    body.auth {
+        margin: 0;
+        min-height: 100dvh;
+        background: var(--bg);
+        color: var(--text);
+        font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+        font-size: 16px;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+    }
+
+    .skip-link {
+        position: absolute; left: -9999px; top: 0;
+        background: var(--primary); color: var(--primary-text);
+        padding: 8px 16px; border-radius: 0 0 var(--radius) 0; z-index: 100;
+    }
+    .skip-link:focus { left: 0; }
+
+    .auth-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        min-height: 100dvh;
+    }
+    @media (min-width: 992px) {
+        .auth-layout { grid-template-columns: minmax(440px, 5fr) 7fr; }
+    }
+
+    /* --- Form side ------------------------------------------------------- */
+    .auth-main {
+        display: flex;
+        flex-direction: column;
+        padding: 32px 24px;
+    }
+    @media (min-width: 576px) { .auth-main { padding: 40px 56px; } }
+
+    .brand {
+        display: inline-flex; align-items: center; gap: 12px;
+        color: var(--text); text-decoration: none; font-weight: 600; font-size: 17px;
+    }
+    .brand-mark {
+        width: 36px; height: 36px; border-radius: 9px;
+        display: grid; place-items: center;
+        background: linear-gradient(135deg, #6366f1, #8b5cf6);
+        box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+    }
+    .brand-mark svg { width: 20px; height: 20px; }
+    .brand small { display: block; font-weight: 500; font-size: 12px; color: var(--text-muted); line-height: 1.2; }
+
+    .auth-card {
+        width: 100%;
+        max-width: 400px;
+        margin: auto;
+        padding: 48px 0;
+    }
+    .auth-card h1 {
+        font-size: 28px; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 8px;
+    }
+    .auth-card .lead {
+        color: var(--text-muted); font-size: 15px; margin: 0 0 32px;
+    }
+
+    .field { margin-bottom: 20px; }
+    .field label {
+        display: block; font-size: 14px; font-weight: 500; margin-bottom: 6px;
+    }
+    .input-wrap { position: relative; }
+    .input-wrap .icon {
+        position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+        color: var(--text-muted); font-size: 15px; pointer-events: none;
+    }
+    .input-wrap input {
+        width: 100%; height: 48px;
+        padding: 0 48px 0 42px;
+        font: inherit; font-size: 16px; color: var(--text);
+        background: var(--input-bg);
+        border: 1px solid var(--border); border-radius: var(--radius);
+        transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
+    }
+    .input-wrap input:hover { border-color: var(--text-muted); }
+    .input-wrap input:focus {
+        outline: none; border-color: var(--primary); box-shadow: 0 0 0 4px var(--focus);
+    }
+    .input-wrap input[aria-invalid="true"] { border-color: var(--danger-text); }
+
+    .toggle-password {
+        position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+        width: 44px; height: 44px; border: 0; border-radius: 8px;
+        background: transparent; color: var(--text-muted); cursor: pointer;
+    }
+    .toggle-password:hover { color: var(--text); }
+    .toggle-password:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus); }
+
+    .hint {
+        display: flex; align-items: center; gap: 6px;
+        margin-top: 6px; font-size: 13px; color: var(--warn-text);
+    }
+    .hint[hidden] { display: none; }
+
+    .alert-error {
+        display: flex; gap: 10px; align-items: flex-start;
+        padding: 12px 14px; margin-bottom: 24px;
+        border: 1px solid var(--danger-border); border-radius: var(--radius);
+        background: var(--danger-bg); color: var(--danger-text); font-size: 14px;
+    }
+    .alert-error i { margin-top: 3px; }
+
+    .btn-submit {
+        width: 100%; height: 48px; margin-top: 8px;
+        display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+        font: inherit; font-weight: 600; font-size: 15px;
+        color: var(--primary-text); background: var(--primary);
+        border: 0; border-radius: var(--radius); cursor: pointer;
+        transition: background-color 150ms ease-out, transform 100ms ease-out;
+    }
+    .btn-submit:hover { background: var(--primary-hover); }
+    .btn-submit:active { transform: scale(0.99); }
+    .btn-submit:focus-visible { outline: none; box-shadow: 0 0 0 4px var(--focus); }
+    .btn-submit[disabled] { opacity: 0.7; cursor: progress; }
+    .btn-submit .spinner {
+        width: 16px; height: 16px; border-radius: 50%;
+        border: 2px solid rgba(255, 255, 255, 0.4); border-top-color: #fff;
+        animation: spin 700ms linear infinite; display: none;
+    }
+    .btn-submit[disabled] .spinner { display: inline-block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .security-note {
+        display: flex; gap: 10px; margin-top: 28px; padding-top: 20px;
+        border-top: 1px solid var(--border);
+        color: var(--text-muted); font-size: 13px;
+    }
+    .security-note i { margin-top: 3px; color: var(--success); }
+
+    .auth-footer {
+        display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+        color: var(--text-muted); font-size: 13px;
+    }
+
+    /* --- Brand panel ------------------------------------------------------- */
+    .auth-panel {
+        display: none;
+        position: relative; overflow: hidden;
+        background:
+            radial-gradient(60% 50% at 70% 20%, rgba(99, 102, 241, 0.28), transparent 70%),
+            radial-gradient(50% 40% at 20% 90%, rgba(139, 92, 246, 0.18), transparent 70%),
+            var(--panel-bg);
+        color: var(--panel-text);
+    }
+    @media (min-width: 992px) { .auth-panel { display: flex; } }
+    .auth-panel::before {
+        /* faint grid */
+        content: ""; position: absolute; inset: 0;
+        background-image:
+            linear-gradient(var(--panel-border) 1px, transparent 1px),
+            linear-gradient(90deg, var(--panel-border) 1px, transparent 1px);
+        background-size: 48px 48px;
+        mask-image: radial-gradient(ellipse at center, #000 30%, transparent 75%);
+        -webkit-mask-image: radial-gradient(ellipse at center, #000 30%, transparent 75%);
+    }
+    .panel-inner {
+        position: relative; margin: auto; width: 100%; max-width: 560px; padding: 56px;
+    }
+    .eyebrow {
+        display: inline-flex; align-items: center; gap: 8px;
+        padding: 6px 12px; border-radius: 999px;
+        border: 1px solid var(--panel-border); background: rgba(255, 255, 255, 0.04);
+        font-size: 13px; color: var(--panel-muted);
+    }
+    .live-dot {
+        width: 8px; height: 8px; border-radius: 50%; background: var(--success);
+        box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.6); animation: pulse 2s ease-out infinite;
+    }
+    @keyframes pulse {
+        0% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.55); }
+        100% { box-shadow: 0 0 0 10px rgba(52, 211, 153, 0); }
+    }
+    .auth-panel h2 {
+        font-size: 36px; line-height: 1.15; font-weight: 700; letter-spacing: -0.025em;
+        margin: 24px 0 16px; color: #fff;
+    }
+    .auth-panel h2 span {
+        background: linear-gradient(90deg, #a5b4fc, #c4b5fd);
+        -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    .auth-panel .panel-lead { color: var(--panel-muted); font-size: 16px; margin: 0 0 36px; max-width: 46ch; }
+
+    .call-card {
+        border: 1px solid var(--panel-border); border-radius: 14px;
+        background: rgba(15, 23, 42, 0.6);
+        backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+        padding: 20px; margin-bottom: 36px;
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+    }
+    .call-head { display: flex; justify-content: space-between; align-items: center; font-size: 14px; }
+    .call-head .who { display: flex; align-items: center; gap: 10px; color: #fff; font-weight: 600; }
+    .call-head .avatar {
+        width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center;
+        background: rgba(129, 140, 248, 0.18); color: var(--accent); font-size: 14px;
+    }
+    .call-head .time { color: var(--panel-muted); font-variant-numeric: tabular-nums; }
+    .wave { display: flex; align-items: center; gap: 4px; height: 44px; margin: 16px 0; }
+    .wave span {
+        flex: 1; border-radius: 3px; background: linear-gradient(180deg, #a5b4fc, #6366f1);
+        height: 30%; transform-origin: center; animation: wave 1.4s ease-in-out infinite;
+    }
+    @keyframes wave { 0%, 100% { transform: scaleY(0.5); } 50% { transform: scaleY(1.6); } }
+    .call-steps { display: flex; flex-wrap: wrap; gap: 8px; }
+    .chip {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 4px 10px; border-radius: 999px; font-size: 12px;
+        background: rgba(148, 163, 184, 0.12); color: var(--panel-text);
+    }
+    .chip i { color: var(--success); font-size: 11px; }
+
+    .features { list-style: none; margin: 0; padding: 0; display: grid; gap: 18px; }
+    .features li { display: flex; gap: 14px; }
+    .features .f-icon {
+        flex: none; width: 36px; height: 36px; border-radius: 9px; display: grid; place-items: center;
+        background: rgba(129, 140, 248, 0.12); color: var(--accent); border: 1px solid var(--panel-border);
+    }
+    .features strong { display: block; color: #fff; font-weight: 600; font-size: 15px; }
+    .features span { color: var(--panel-muted); font-size: 14px; }
+
+    @media (prefers-reduced-motion: reduce) {
+        .wave span, .live-dot, .btn-submit .spinner { animation: none; }
+        * { transition: none !important; }
+    }
+</style>
+{% endblock %}
+
+{% block body %}
+<a class="skip-link" href="#login-form">Skip to sign-in form</a>
+<div class="auth-layout">
+    <main class="auth-main">
+        <a class="brand" href="{{ url_for('auth.login') }}" aria-label="Lisa Console">
+            <span class="brand-mark" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round">
+                    <path d="M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4"/>
+                </svg>
+            </span>
+            <span>Lisa Console<small>JV Möbel · Voice Assistant</small></span>
+        </a>
+
+        <div class="auth-card">
+            <h1>Sign in to the console</h1>
+            <p class="lead">Calls, orders and voice messages handled by Lisa, all in one place.</p>
+
+            {% with messages = get_flashed_messages(with_categories=true) %}
+            {% for category, message in messages %}
+            <div class="alert-error" role="alert" id="login-error">
+                <i class="fas fa-circle-exclamation" aria-hidden="true"></i>
+                <span>{{ message }}</span>
+            </div>
+            {% endfor %}
+            {% endwith %}
+
+            <form method="post" id="login-form" novalidate>
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                <div class="field">
+                    <label for="username">Username</label>
+                    <div class="input-wrap">
+                        <i class="fas fa-user icon" aria-hidden="true"></i>
+                        <input type="text" id="username" name="username"
+                               value="{{ request.form.get('username', '') }}"
+                               autocomplete="username" autocapitalize="none" spellcheck="false"
+                               required {% if not request.form.get('username') %}autofocus{% endif %}
+                               {% if get_flashed_messages() %}aria-describedby="login-error"{% endif %}>
                     </div>
-                    <div class="mb-3">
-                        <label for="password" class="form-label">Пароль</label>
-                        <input type="password" class="form-control" id="password" name="password"
-                               autocomplete="current-password" required>
+                </div>
+
+                <div class="field">
+                    <label for="password">Password</label>
+                    <div class="input-wrap">
+                        <i class="fas fa-lock icon" aria-hidden="true"></i>
+                        <input type="password" id="password" name="password"
+                               autocomplete="current-password" required
+                               {% if request.form.get('username') %}autofocus aria-invalid="true" aria-describedby="login-error"{% endif %}>
+                        <button type="button" class="toggle-password" aria-label="Show password"
+                                aria-pressed="false" aria-controls="password">
+                            <i class="fas fa-eye" aria-hidden="true"></i>
+                        </button>
                     </div>
-                    <button type="submit" class="btn btn-primary w-100">Войти</button>
-                </form>
+                    <p class="hint" id="caps-hint" hidden role="status">
+                        <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>Caps Lock is on
+                    </p>
+                </div>
+
+                <button type="submit" class="btn-submit">
+                    <span class="spinner" aria-hidden="true"></span>
+                    <span class="label">Sign in</span>
+                </button>
+            </form>
+
+            <div class="security-note">
+                <i class="fas fa-shield-halved" aria-hidden="true"></i>
+                <span>Staff access only. The connection is encrypted and every sign-in is logged.
+                    No access? Contact your administrator.</span>
             </div>
         </div>
-    </div>
+
+        <footer class="auth-footer">
+            <span>© {{ now_year }} JV Möbel</span>
+            <span>Lisa Console</span>
+        </footer>
+    </main>
+
+    <aside class="auth-panel" aria-label="About Lisa">
+        <div class="panel-inner">
+            <span class="eyebrow"><span class="live-dot" aria-hidden="true"></span>Lisa is on the line 24/7</span>
+            <h2>Every call <span>answered</span>, even&nbsp;at&nbsp;night.</h2>
+            <p class="panel-lead">The voice assistant tells callers their order status, takes messages
+                and transfers to your team during business hours.</p>
+
+            <div class="call-card" aria-hidden="true">
+                <div class="call-head">
+                    <span class="who"><span class="avatar"><i class="fas fa-phone"></i></span>Incoming call</span>
+                    <span class="time">00:42</span>
+                </div>
+                <div class="wave">
+                    {% for i in range(32) %}<span style="animation-delay: -{{ (i * 137) % 1400 }}ms"></span>{% endfor %}
+                </div>
+                <div class="call-steps">
+                    <span class="chip"><i class="fas fa-check"></i>Caller verified</span>
+                    <span class="chip"><i class="fas fa-check"></i>Status shared</span>
+                    <span class="chip"><i class="fas fa-check"></i>No agent needed</span>
+                </div>
+            </div>
+
+            <ul class="features">
+                <li>
+                    <span class="f-icon" aria-hidden="true"><i class="fas fa-box"></i></span>
+                    <div><strong>Order status from Afterbuy</strong>
+                        <span>Delivery window and open balance, shared only after the caller is verified.</span></div>
+                </li>
+                <li>
+                    <span class="f-icon" aria-hidden="true"><i class="fas fa-microphone-lines"></i></span>
+                    <div><strong>Voice messages</strong>
+                        <span>Recording and transcript emailed to the office, exactly one email per message.</span></div>
+                </li>
+                <li>
+                    <span class="f-icon" aria-hidden="true"><i class="fas fa-shield-halved"></i></span>
+                    <div><strong>Security</strong>
+                        <span>Twilio signature checks, role-based access, brute-force protection.</span></div>
+                </li>
+            </ul>
+        </div>
+    </aside>
 </div>
+
+<script>
+(function () {
+    const form = document.getElementById('login-form');
+    const password = document.getElementById('password');
+    const toggle = document.querySelector('.toggle-password');
+    const capsHint = document.getElementById('caps-hint');
+
+    toggle.addEventListener('click', function () {
+        const show = password.type === 'password';
+        password.type = show ? 'text' : 'password';
+        toggle.setAttribute('aria-pressed', String(show));
+        toggle.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+        toggle.querySelector('i').className = show ? 'fas fa-eye-slash' : 'fas fa-eye';
+        password.focus();
+    });
+
+    function updateCaps(event) {
+        if (event.getModifierState) {
+            capsHint.hidden = !event.getModifierState('CapsLock');
+        }
+    }
+    password.addEventListener('keydown', updateCaps);
+    password.addEventListener('keyup', updateCaps);
+    password.addEventListener('blur', function () { capsHint.hidden = true; });
+
+    form.addEventListener('submit', function (event) {
+        // Native required check without browser bubbles: focus the first empty field
+        const empty = [...form.querySelectorAll('input[required]')].find(i => !i.value.trim());
+        if (empty) {
+            event.preventDefault();
+            empty.setAttribute('aria-invalid', 'true');
+            empty.focus();
+            return;
+        }
+        const button = form.querySelector('.btn-submit');
+        button.disabled = true;
+        button.querySelector('.label').textContent = 'Signing in…';
+    });
+
+    form.querySelectorAll('input').forEach(function (input) {
+        input.addEventListener('input', function () { input.removeAttribute('aria-invalid'); });
+    });
+})();
+</script>
 {% endblock %}

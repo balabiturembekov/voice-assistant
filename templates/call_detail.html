@@ -235,10 +235,10 @@
                     <div class="mb-3">
                         <label for="newStatus" class="form-label">New Status</label>
                         <select class="form-select" id="newStatus" required>
-                            <option value="PROCESSING">В обработке</option>
-                            <option value="HANDLED">Обработано</option>
-                            <option value="COMPLETED">Завершен</option>
-                            <option value="PROBLEM">Проблема</option>
+                            <option value="PROCESSING">Processing</option>
+                            <option value="HANDLED">Handled</option>
+                            <option value="COMPLETED">Completed</option>
+                            <option value="PROBLEM">Problem</option>
                         </select>
                     </div>
                     <div class="mb-3">
@@ -373,10 +373,10 @@ function updateOrderStatus() {
 
 function getStatusText(status) {
     const statusMap = {
-        'PROCESSING': 'В обработке',
-        'HANDLED': 'Обработано',
-        'COMPLETED': 'Завершен',
-        'PROBLEM': 'Проблема'
+        'PROCESSING': 'Processing',
+        'HANDLED': 'Handled',
+        'COMPLETED': 'Completed',
+        'PROBLEM': 'Problem'
     };
     return statusMap[status] || status;
 }
