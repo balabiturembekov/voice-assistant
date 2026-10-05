@@ -31,12 +31,23 @@
                         <dt>Verification</dt>
                         <dd>{{ ui.verification(order.verification) }}<div class="muted mt-1" style="font-size: 13px;">{{ v.explanation }}</div></dd>
                     </div>
+                    {% set d = afterbuy.delivery if afterbuy else None %}
                     <div class="dl-row">
-                        <dt>Est. delivery</dt>
+                        <dt>Delivery</dt>
                         <dd>
+                            {% if d and d.source == 'shipped' %}
+                            Shipped on {{ d.shipped_on.strftime('%d.%m.%Y') }}
+                            <div class="muted mt-1" style="font-size: 13px;">Shipping date recorded in Afterbuy. Lisa tells verified callers this date.</div>
+                            {% elif d and d.source == 'planned' %}
+                            KW {{ d.weeks[0] }}{% if d.weeks[1] != d.weeks[0] %}–{{ d.weeks[1] }}{% endif %}
+                            · {{ d.window[0].strftime('%d.%m.') }}–{{ d.window[1].strftime('%d.%m.%Y') }}
+                            {% if is_overdue(order) %} {{ ui.overdue() }}{% endif %}
+                            <div class="muted mt-1" style="font-size: 13px;">Planned delivery week from the Afterbuy memo.</div>
+                            {% else %}
                             {{ order.promised_delivery_date.strftime('%d.%m.%Y') if order.promised_delivery_date else '—' }}
                             {% if is_overdue(order) %} {{ ui.overdue() }}{% endif %}
                             <div class="muted mt-1" style="font-size: 13px;">Lisa's estimate from the order date and production time, not a confirmed date.</div>
+                            {% endif %}
                         </dd>
                     </div>
                     {% endif %}
@@ -85,14 +96,57 @@
                     {{ ui.field("Address", [afterbuy.street, ' '.join([afterbuy.postal_code or '', afterbuy.city or '']).strip(), afterbuy.country] | select | join(', ')) }}
                     {{ ui.field("Order date", afterbuy.order_date.strftime('%d.%m.%Y') if afterbuy.order_date else None) }}
                     {{ ui.field("Invoice", afterbuy.invoice_number, mono=True) }}
+                    {{ ui.field("Sold via", afterbuy.platform) }}
+                    <div class="dl-row">
+                        <dt>Payment</dt>
+                        <dd>
+                            {{ afterbuy.payment_method or '—' }}
+                            {% if afterbuy.marketplace %} {{ ui.badge({'tone': 'info', 'icon': 'fa-store', 'label': 'Paid via marketplace'}) }}{% endif %}
+                        </dd>
+                    </div>
                     {{ ui.field("Total", money(afterbuy.total)) }}
                     {{ ui.field("Paid", money(afterbuy.paid)) }}
                     <div class="dl-row">
                         <dt>Open balance</dt>
-                        <dd class="tabular"><strong>{{ money(afterbuy.open) }}</strong></dd>
+                        <dd class="tabular">
+                            <strong>{{ money(afterbuy.open) }}</strong>
+                            {% if afterbuy.marketplace %}<div class="muted mt-1" style="font-size: 13px;">The marketplace collects the payment, so Lisa never mentions an open amount.</div>{% endif %}
+                        </dd>
                     </div>
+                    {{ ui.field("Shipping", afterbuy.shipping_method) }}
+                    {% if afterbuy.tracking_link or afterbuy.parcel_numbers %}
+                    <div class="dl-row">
+                        <dt>Tracking</dt>
+                        <dd>
+                            {% if afterbuy.tracking_link %}<a class="link-c" href="{{ afterbuy.tracking_link }}" target="_blank" rel="noopener noreferrer">Track parcel <i class="fas fa-arrow-up-right-from-square" aria-hidden="true"></i></a>{% endif %}
+                            {% for number in afterbuy.parcel_numbers %}<div class="mono">{{ number }}</div>{% endfor %}
+                        </dd>
+                    </div>
+                    {% endif %}
                 </dl>
             </div>
+            {% if afterbuy.line_items %}
+            <div class="table-wrap" style="border-top: 1px solid var(--border);">
+                <table class="table-c">
+                    <thead><tr><th scope="col">Item</th><th scope="col" class="text-end">Qty</th><th scope="col" class="text-end">Price</th></tr></thead>
+                    <tbody>
+                    {% for item in afterbuy.line_items %}
+                    <tr>
+                        <td>{{ item.title or '—' }}</td>
+                        <td class="text-end tabular">{{ item.quantity or '—' }}</td>
+                        <td class="text-end tabular">{{ money(item.price) }}</td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+            {% if afterbuy.memo %}
+            <div class="card-c-body" style="border-top: 1px solid var(--border);">
+                <h3 class="form-label">Afterbuy memo</h3>
+                <p class="notes">{{ afterbuy.memo }}</p>
+            </div>
+            {% endif %}
             {% elif afterbuy_error %}
             {{ ui.empty("fa-plug-circle-xmark", "Couldn't load this order from Afterbuy right now. Try again in a minute.") }}
             {% endif %}

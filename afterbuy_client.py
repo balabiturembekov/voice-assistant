@@ -198,6 +198,9 @@ class AfterbuyClient:
                 "already_paid": self._get_text(payment_info, "AlreadyPaid"),
                 "full_amount": self._get_text(payment_info, "FullAmount"),
                 "invoice_date": self._get_text(payment_info, "InvoiceDate"),
+                # e.g. "OTTO-Payments", "Kaufland", "TEMU" for marketplace orders
+                "payment_method": self._get_text(payment_info, "PaymentMethod"),
+                "payment_function": self._get_text(payment_info, "PaymentFunction"),
             }
 
         # Parse sold items
@@ -212,10 +215,13 @@ class AfterbuyClient:
                     "price": self._get_text(item, "ItemPrice"),
                     "tax_rate": self._get_text(item, "TaxRate"),
                     "weight": self._get_text(item, "ItemWeight"),
+                    "platform": self._get_text(item, "ItemPlatformName"),
+                    "user_flag": self._get_text(item, "UserDefinedFlag"),
                 }
             )
 
         order_data["items"] = items
+        order_data["platform"] = next((i["platform"] for i in items if i["platform"]), None)
 
         # Parse shipping info
         shipping_info = order.find(".//ShippingInfo")
@@ -224,73 +230,20 @@ class AfterbuyClient:
                 "cost": self._get_text(shipping_info, "ShippingCost"),
                 "total_cost": self._get_text(shipping_info, "ShippingTotalCost"),
                 "tax_rate": self._get_text(shipping_info, "ShippingTaxRate"),
+                # Set by staff when the order is marked as shipped (Versanddatum)
+                "delivery_date": self._get_text(shipping_info, "DeliveryDate"),
+                "method": self._get_text(shipping_info, "ShippingMethod"),
+                "parcel_numbers": [
+                    label.text.strip()
+                    for label in shipping_info.iter("ParcelLabelNumber")
+                    if label.text and label.text.strip()
+                ],
             }
+        tracking = order.find(".//TrackingLink")
+        if tracking is not None and tracking.text and tracking.text.strip():
+            order_data.setdefault("shipping", {})["tracking_link"] = tracking.text.strip()
 
         return order_data
-
-    def parse_memo(self, memo_text: str) -> Dict:
-        """
-        Parse the Memo field which contains structured order information
-
-        Example memo:
-        20.10.2025
-        Rayan Daouk
-        131629 Anzahlung 15 .
-        1.680,00 EUR
-        https://farm01.afterbuy.de/afterbuy/shop/shopvorschau.aspx?id=180772819
-
-        Returns:
-            Dictionary with parsed memo data
-        """
-        if not memo_text:
-            return {}
-
-        lines = [line.strip() for line in memo_text.strip().split("\n") if line.strip()]
-
-        result = {
-            "raw_memo": memo_text,
-            "date": None,
-            "customer_name": None,
-            "order_info": None,
-            "amount": None,
-            "amount_value": None,
-            "link": None,
-        }
-
-        for i, line in enumerate(lines):
-            # Check if line is a date (DD.MM.YYYY)
-            if re.match(r"\d{2}\.\d{2}\.\d{4}", line):
-                result["date"] = line
-
-            # Check if line is an amount (e.g., "1.680,00 EUR" or "1,680.00 EUR")
-            elif re.match(r"[\d.,]+\s*EUR", line.upper()):
-                result["amount"] = line
-                # Extract numeric value
-                amount_clean = (
-                    line.replace(".", "").replace(",", ".").replace("EUR", "").strip()
-                )
-                try:
-                    result["amount_value"] = float(amount_clean)
-                except:
-                    pass
-
-            # Check if line is a URL
-            elif line.startswith("http://") or line.startswith("https://"):
-                result["link"] = line
-
-            # Check if line contains order number and payment type (e.g., "131629 Anzahlung 15 %")
-            elif re.search(r"\d+.*Anzahlung", line, re.IGNORECASE):
-                result["order_info"] = line
-                # Try to extract payment percentage
-                percent_match = re.search(r"(\d+)\s*%", line)
-                if percent_match:
-                    result["payment_percent"] = percent_match.group(1)
-
-            # If previous line was date, this is likely customer name
-            elif i > 0 and re.match(r"\d{2}\.\d{2}\.\d{4}", lines[i - 1]):
-                result["customer_name"] = line
-
-        return result
 
     def _get_text(self, element, tag):
         """Helper method to safely get text from XML element"""

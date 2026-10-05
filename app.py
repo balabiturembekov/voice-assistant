@@ -298,6 +298,22 @@ def afterbuy_summary(data):
         "total": full,
         "paid": paid if full is not None else None,
         "open": order_status.open_amount(data) if full is not None else None,
+        "marketplace": order_status.is_marketplace(data),
+        "platform": data.get("platform"),
+        "payment_method": payment.get("payment_method") or payment.get("payment_function"),
+        "line_items": [
+            {
+                "title": item.get("title"),
+                "quantity": item.get("quantity"),
+                "price": order_status.parse_amount(item.get("price")),
+            }
+            for item in data.get("items") or []
+        ],
+        "shipping_method": (data.get("shipping") or {}).get("method"),
+        "tracking_link": (data.get("shipping") or {}).get("tracking_link"),
+        "parcel_numbers": (data.get("shipping") or {}).get("parcel_numbers") or [],
+        "delivery": order_status.delivery_info(data),
+        "memo": data.get("memo"),
     }
 
 
