@@ -1,8 +1,9 @@
-from flask import Flask, request, Response, render_template
+from flask import Flask, request, Response, render_template, send_file
 from twilio.twiml.voice_response import VoiceResponse
 from werkzeug.middleware.proxy_fix import ProxyFix
 from flask_migrate import Migrate
 import click
+import io
 import logging
 import secrets
 from datetime import timezone
@@ -18,6 +19,7 @@ from models import (
     Order,
     User,
     UserRole,
+    VoiceMessage,
     db,
     utcnow,
 )
@@ -28,6 +30,7 @@ import ui
 from sqlalchemy import desc, func, or_, text
 import order_status
 from order_lookup import get_order_from_afterbuy
+from recordings import RecordingUnavailable, fetch_recording
 from jobs_queue import get_redis
 from calls import log_conversation, update_call_status
 from call_flow import VOICEMAIL_MAX_LENGTH, flow_bp
@@ -303,6 +306,24 @@ def order_statuses():
     return [
         row[0] for row in db.session.query(Order.status).distinct().order_by(Order.status) if row[0]
     ]
+
+
+@app.route("/voice-messages/<int:message_id>/audio", methods=["GET"])
+def voice_message_audio(message_id):
+    """Stream a voice message recording to signed-in staff (Twilio requires auth)"""
+    message = db.get_or_404(VoiceMessage, message_id)
+    try:
+        audio = fetch_recording(message.recording_url)
+    except RecordingUnavailable as e:
+        logger.warning(f"Recording for voice message {message_id} unavailable: {e}")
+        return {"error": "Recording is not available right now"}, 502
+    return send_file(
+        io.BytesIO(audio),
+        mimetype="audio/mpeg",
+        download_name=f"voice-message-{message_id}.mp3",
+        conditional=True,  # range requests, so the player can seek
+        max_age=0,
+    )
 
 
 @app.route("/webhook/recorded", methods=["POST"])

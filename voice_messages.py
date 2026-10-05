@@ -9,6 +9,7 @@ from sqlalchemy import or_, update
 
 from config import Config
 from jobs_queue import enqueue
+from recordings import console_audio_url
 from models import EmailStatus, Order, VoiceMessage, db, utcnow
 from services import send_voice_message_email
 
@@ -131,7 +132,8 @@ def send_voice_message_email_job(message_id, allow_without_transcription=False):
         try:
             sent = send_voice_message_email(
                 caller_number=call.phone_number,
-                recording_url=message.recording_url,
+                # Twilio recordings need auth; the console link plays it after sign-in
+                recording_url=console_audio_url(message.id),
                 transcription_text=message.transcription_text or NO_TRANSCRIPTION_TEXT,
                 duration_seconds=message.duration_seconds or 0,
                 language=call.language or "de",
