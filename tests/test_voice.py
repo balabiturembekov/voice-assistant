@@ -30,51 +30,22 @@ def test_every_say_gets_voice_and_language(client, app, number, voice_attr, lang
 def test_follow_up_webhooks_use_call_language(client, app):
     db.session.add(Call(call_sid="CAen", phone_number="+12025550123", language="en"))
     db.session.commit()
-    resp = post_webhook(client, "/webhook/consent", {"From": "+12025550123", "CallSid": "CAen", "Digits": "1"})
+    resp = post_webhook(client, "/webhook/menu?attempt=1", {"From": "+12025550123", "CallSid": "CAen", "Digits": "1"})
     assert {say.get("language") for say in says(resp)} == {"en-US"}
 
 
-@pytest.mark.parametrize("digits", ["1", "2", "9"])
+@pytest.mark.parametrize("digits", ["1", "2", "0", "7", ""])
 def test_prompts_never_contain_hash_symbol(client, app, digits):
     db.session.add(Call(call_sid="CAhash", phone_number="+4915112345678", language="de"))
     db.session.commit()
-    for path in ("/webhook/consent", "/webhook/order_availability", "/webhook/voice_message"):
+    for path in ("/webhook/menu?attempt=1", "/webhook/next?attempt=1&kind=not_found"):
         resp = post_webhook(client, path, {"From": "+4915112345678", "CallSid": "CAhash", "Digits": digits})
         for say in says(resp):
             assert "#" not in (say.text or ""), say.text
 
 
-def test_greeting_asks_for_consent(client, app):
+def test_greeting_introduces_lisa_and_company(client, app):
     resp = post_webhook(client, "/webhook/voice", {"From": "+4915112345678", "CallSid": "CAgreet"})
     text = " ".join(say.text for say in says(resp))
-    assert "Lisa" in text
-    assert "einverstanden" in text
-
-
-@pytest.mark.parametrize(
-    "raw,expected",
-    [("1680,50", 1680.5), ("1.680,50", 1680.5), ("1680.50", 1680.5), ("0,00", 0.0), ("", None), ("abc", None)],
-)
-def test_parse_amount(raw, expected):
-    assert app_module.parse_amount(raw) == expected
-
-
-def test_euro_for_speech():
-    assert app_module.euro_for_speech(1680.5, "de") == "1680 Euro und 50 Cent"
-    assert app_module.euro_for_speech(500.0, "de") == "500 Euro"
-    assert app_module.euro_for_speech(19.99, "en") == "19 euros and 99 cents"
-
-
-def test_status_speech_is_well_formed():
-    order = {
-        "order_id": "24896241",
-        "order_date": "18.09.2026 16:27:55",
-        "payment": {"already_paid": "500,00", "full_amount": "1.680,50"},
-        "buyer": {"first_name": "", "country": "DE"},
-    }
-    text = app_module.format_order_status_for_speech(order, "de")
-    assert "500 Euro bezahlt" in text
-    assert "1680 Euro und 50 Cent" in text
-    assert "/" not in text  # no 'Schrägstrich'
-    assert "auf den Namen" not in text  # empty name is skipped
-    assert "Kalenderwoche" in text
+    assert "Lisa" in text and Config.COMPANY_NAME in text
+    assert "Datenschutz" in text

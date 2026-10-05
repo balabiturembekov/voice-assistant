@@ -1,4 +1,4 @@
-from datetime import datetime, date
+from datetime import datetime
 import smtplib
 import logging
 import re
@@ -27,103 +27,6 @@ def detect_language(caller_number: str) -> str:
         return "en"
     else:
         return "de"
-
-
-def get_greeting_message(language: str) -> str:
-    """
-    Get the appropriate greeting message based on language
-    """
-
-    messages = {
-        "de": "Guten Tag, hier spricht Lisa, Ihre digitale Service-Assistentin. Zur Qualitätssicherung kann dieses Gespräch aufgezeichnet werden.",
-        "en": "Hello, this is Lisa, your digital service assistant. This call may be recorded for quality purposes.",
-    }
-    return messages.get(language, messages["de"])
-
-
-def format_order_number_for_speech(order_number) -> str:
-    """
-    Format the order number for speech - pronounced as digits
-    Example: 1234567890 -> "one two three four five six seven eight nine zero"
-    """
-    digits = " ".join(list(str(order_number)))
-    return digits
-
-
-def get_goodbye_message(language="de") -> str:
-    """Get consistent goodbye message based on language"""
-    if language == "de":
-        return "Vielen Dank für Ihren Anruf. Bei weiteren Fragen sind wir gerne für Sie da. Auf Wiederhören!"
-    else:
-        return "Thank you for calling. If you have any further questions, we are happy to help. Goodbye!"
-
-
-def get_order_availability_prompt(language: str) -> str:
-    """Get prompt asking if user has order number"""
-    if language == "de":
-        return "Haben Sie Ihre Bestell- oder Rechnungsnummer zur Hand? Dann drücken Sie bitte die 1. Wenn nicht, drücken Sie die 2."
-    else:
-        return "Do you have your order or invoice number at hand? Then please press 1. If not, press 2."
-
-
-def get_order_input_prompt(language: str) -> str:
-    """Get clear instructions for order number input"""
-    if language == "de":
-        return "Bitte geben Sie Ihre Bestell- oder Rechnungsnummer über die Telefontastatur ein und bestätigen Sie mit der Rautetaste."
-    else:
-        return "Please enter your order or invoice number using the keypad, then press the hash key."
-
-
-def get_no_order_transfer_message(language: str) -> str:
-    """Get message when transferring due to no order number"""
-    if language == "de":
-        return "Verstanden. Ich verbinde Sie jetzt mit einem unserer Mitarbeiter, der Ihnen bei Ihrer Anfrage helfen kann. Einen Moment, bitte."
-    else:
-        return "Understood. I'm now connecting you with one of our staff members who can help you with your inquiry. Please hold."
-
-
-def check_delivery_overdue(order_data: dict) -> bool:
-    """
-    Check if the promised delivery date has passed
-    Returns True if delivery is overdue
-    """
-    if not order_data or "promised_delivery_date" not in order_data:
-        return False
-
-    promised_date = order_data["promised_delivery_date"]
-    if isinstance(promised_date, str):
-        try:
-            promised_date = datetime.strptime(promised_date, "%Y-%m-%d").date()
-        except (ValueError, TypeError):
-            # Invalid date format, cannot determine if overdue
-            return False
-
-    if not isinstance(promised_date, date):
-        return False
-
-    return promised_date < date.today()
-
-
-def get_overdue_delivery_message(language: str) -> str:
-    """Get message for overdue delivery cases"""
-    if language == "de":
-        return "Ihre Lieferung wird in Kürze erwartet. Für weitere Informationen verbinde ich Sie jetzt mit einem Mitarbeiter."
-    else:
-        return "I'm sorry, but your delivery has not arrived yet. I'm now connecting you with one of our staff members who can help you with this issue. Please hold."
-
-
-def get_delivery_status_message(language: str, order_data: dict) -> str:
-    """
-    Get appropriate delivery status message based on whether delivery is overdue
-    """
-    if check_delivery_overdue(order_data):
-        return get_overdue_delivery_message(language)
-    else:
-        # Return normal delivery status message
-        if language == "de":
-            return f"Ihr Auftrag {format_order_number_for_speech(order_data.get('order_id', ''))}: Ihre Ware befindet sich derzeit in der Produktion und hat eine voraussichtliche Lieferzeit von {order_data.get('production_min_weeks', '')} bis {order_data.get('production_max_weeks', '')} Wochen."
-        else:
-            return f"Your order {format_order_number_for_speech(order_data.get('order_id', ''))}: Your goods are currently in production and have an expected delivery time of {order_data.get('production_min_weeks', '')} to {order_data.get('production_max_weeks', '')} weeks."
 
 
 def _validate_email_address(email: str) -> bool:

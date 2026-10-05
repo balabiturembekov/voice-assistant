@@ -18,7 +18,7 @@ class Config:
     TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER")
 
     # Company Information
-    COMPANY_NAME = os.getenv("COMPANY_NAME", "Your Company")
+    COMPANY_NAME = os.getenv("COMPANY_NAME", "JV Möbel")
     WEBSITE_URL = os.getenv("WEBSITE_URL", "https://your-website.com")
 
     # Text-to-speech voices (Twilio <Say>), one per call language.
@@ -63,6 +63,25 @@ class Config:
         "DATABASE_URL", f"sqlite:///{db_path.absolute()}"
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+
+    # Call flow v2
+    # Team numbers dialled at the same time (comma separated, E.164)
+    AGENT_NUMBERS = [
+        n.strip() for n in os.getenv("AGENT_NUMBERS", "+4973929378421").split(",") if n.strip()
+    ]
+    AGENT_DIAL_TIMEOUT = int(os.getenv("AGENT_DIAL_TIMEOUT", "25"))
+    # Business hours for transfers: weekdays 0=Mon..6=Sun, local time in TIMEZONE
+    BUSINESS_DAYS = os.getenv("BUSINESS_DAYS", "0-4")
+    BUSINESS_HOURS = os.getenv("BUSINESS_HOURS", "08:00-17:00")
+    TIMEZONE = os.getenv("TIMEZONE", "Europe/Berlin")
+    BUSINESS_HOURS_TEXT_DE = os.getenv(
+        "BUSINESS_HOURS_TEXT_DE", "montags bis freitags von 8 bis 17 Uhr"
+    )
+    BUSINESS_HOURS_TEXT_EN = os.getenv(
+        "BUSINESS_HOURS_TEXT_EN", "Monday to Friday from 8 am to 5 pm"
+    )
+    # Production time used for the delivery estimate, in weeks
+    PRODUCTION_WEEKS = os.getenv("PRODUCTION_WEEKS", "8-12")
 
     # Redis: job queue, Afterbuy cache, login throttling
     REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")

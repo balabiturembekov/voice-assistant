@@ -10,6 +10,7 @@ Flask-Migrate==4.0.7
 psycopg2-binary==2.9.10
 redis==5.0.8
 rq==1.16.2
+tzdata==2024.2
 
 # Optional: External transcription services for better German transcription
 # Uncomment if you want to use Google Cloud Speech-to-Text:
