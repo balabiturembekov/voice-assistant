@@ -11,10 +11,9 @@ PROMPTS = {
             "Informationen zum Datenschutz finden Sie auf unserer Website."
         ),
         "menu": (
-            "Für den Status Ihrer Bestellung drücken Sie die 1. "
-            "Um uns eine Nachricht zu hinterlassen, die 2. "
-            "Für ein Gespräch mit unserem Team die 0. "
-            "For English, press 9."
+            "Für den Status Ihrer Bestellung drücken Sie die Eins. "
+            "Um uns eine Nachricht zu hinterlassen, die Zwei. "
+            "Für ein Gespräch mit unserem Team die Null."
         ),
         "menu_retry": "Das habe ich leider nicht verstanden.",
         "order_number": (
@@ -58,14 +57,14 @@ PROMPTS = {
         ),
         "next_menu": (
             "Zum Wiederholen drücken Sie die Sterntaste, "
-            "für einen weiteren Auftrag die 1, "
-            "für eine Nachricht die 2, "
-            "für unser Team die 0."
+            "für einen weiteren Auftrag die Eins, "
+            "für eine Nachricht die Zwei, "
+            "für unser Team die Null."
         ),
         "not_found_menu": (
-            "Für einen neuen Versuch drücken Sie die 1, "
-            "für eine Nachricht die 2, "
-            "für unser Team die 0."
+            "Für einen neuen Versuch drücken Sie die Eins, "
+            "für eine Nachricht die Zwei, "
+            "für unser Team die Null."
         ),
         "agent_connecting": "Ich verbinde Sie mit unserem Team. Einen Moment, bitte.",
         "agent_after_hours": (
@@ -100,8 +99,7 @@ PROMPTS = {
         "menu": (
             "For the status of your order, press 1. "
             "To leave us a message, press 2. "
-            "To speak to our team, press 0. "
-            "Für Deutsch drücken Sie die 9."
+            "To speak to our team, press 0."
         ),
         "menu_retry": "Sorry, I didn't catch that.",
         "order_number": "Please enter your order or invoice number, then press the hash key.",
@@ -155,6 +153,13 @@ PROMPTS = {
         "goodbye": "Thank you for calling. Goodbye!",
         "error": "Sorry, a technical error occurred. Please call again later.",
     },
+}
+
+
+# Offer to switch language, spoken in the target language: key = current call language
+LANGUAGE_SWITCH = {
+    "de": ("en", "For English, press 9."),
+    "en": ("de", "Für Deutsch drücken Sie die Neun."),
 }
 
 

@@ -20,11 +20,29 @@ def says(resp):
 def test_every_say_gets_voice_and_language(client, app, number, voice_attr, language_code):
     resp = post_webhook(client, "/webhook/voice", {"From": number, "CallSid": f"CA{number}"})
     elements = says(resp)
-    assert len(elements) >= 2  # greeting + consent question (+ goodbye)
+    assert len(elements) >= 3  # greeting + menu + language switch (+ goodbye)
+    main, switch = elements[:-1], elements[-1]
     for say in elements:
+        assert "voiceEngine" not in say.attrib
+    for say in main:
         assert say.get("voice") == getattr(Config, voice_attr)
         assert say.get("language") == language_code
-        assert "voiceEngine" not in say.attrib
+    # The language switch offer is spoken in the other language, with its voice
+    other_voice, other_code = ("VOICE_EN", "en-US") if language_code == "de-DE" else ("VOICE_DE", "de-DE")
+    assert switch.get("language") == other_code
+    assert switch.get("voice") == getattr(Config, other_voice)
+
+
+def test_german_prompts_say_numbers_as_words():
+    """'die 1.' is read as an ordinal ('die erste'); prompts must say 'die Eins'"""
+    import re
+
+    from prompts import LANGUAGE_SWITCH, PROMPTS
+
+    texts = list(PROMPTS["de"].values()) + [LANGUAGE_SWITCH["en"][1]]
+    for text in texts:
+        assert not re.search(r"\bdie \d", text), text
+    assert "die Eins" in PROMPTS["de"]["menu"] and "die Null" in PROMPTS["de"]["menu"]
 
 
 def test_follow_up_webhooks_use_call_language(client, app):

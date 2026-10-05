@@ -178,9 +178,19 @@ def date_for_speech(value, language="de"):
     return f"{MONTHS_EN[value.month - 1]} {value.day}"
 
 
-def number_for_speech(number):
-    """'24896241' -> '2 4 8 9 6 2 4 1' so it is read digit by digit"""
-    return " ".join(str(number))
+DIGIT_WORDS_DE = ["null", "eins", "zwei", "drei", "vier", "fünf", "sechs", "sieben", "acht", "neun"]
+
+
+def number_for_speech(number, language="de"):
+    """'248' -> 'zwei vier acht' (de) / '2 4 8' (en), read digit by digit.
+
+    German needs words: "1." is an ordinal ("erste"), so a digit before a full
+    stop would be read wrongly.
+    """
+    digits = [ch for ch in str(number) if ch.isdigit()]
+    if language == "de":
+        return " ".join(DIGIT_WORDS_DE[int(d)] for d in digits)
+    return " ".join(digits)
 
 
 def _digits(text):

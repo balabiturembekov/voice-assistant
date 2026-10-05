@@ -39,8 +39,12 @@ def apply_voice(response):
         return response
     try:
         root = ET.fromstring(response.get_data())
-        voice, language_code = voice_for(_call_language())
+        call_language = _call_language()
         for say in root.iter("Say"):
+            # A <Say> that already names its language (e.g. the language switch
+            # offer) keeps it and gets that language's voice
+            preset = next((lang for lang, code in LANGUAGE_CODES.items() if code == say.get("language")), None)
+            voice, language_code = voice_for(preset or call_language)
             say.set("voice", voice)
             say.set("language", language_code)
             # Not a TwiML attribute; older code passed it
