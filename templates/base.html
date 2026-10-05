@@ -4,95 +4,143 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>{% block title %}Voice Assistant Dashboard{% endblock %}</title>
+    <meta name="color-scheme" content="light dark">
+    <title>{% block title %}Lisa Console{% endblock %}</title>
+    <script>
+        // Bootstrap components follow the OS theme, like the console tokens
+        document.documentElement.setAttribute(
+            'data-bs-theme', matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/console.css') }}" rel="stylesheet">
     <style>
-        .status-processing { color: #ffc107; }
-        .status-completed { color: #28a745; }
-        .status-problem { color: #dc3545; }
-        .status-handled { color: #17a2b8; }
-        .call-card {
-            transition: transform 0.2s;
-        }
-        .call-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-        }
-        .stats-card {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-        }
+        /* Legacy page styles (calls/orders pages) */
+        .status-processing { color: #d97706; }
+        .status-completed { color: #059669; }
+        .status-problem { color: #dc2626; }
+        .status-handled { color: #0891b2; }
+        .stats-card { background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: white; }
     </style>
     {% block head %}{% endblock %}
 </head>
-<body class="{% block body_class %}{% endblock %}">
+<body class="{% block body_class %}console{% endblock %}">
 {% block body %}
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-        <div class="container">
-            <a class="navbar-brand" href="/">
-                <i class="fas fa-phone-alt me-2"></i>Voice Assistant Dashboard
+{% set nav = [
+    ('dashboard', '/', 'fa-chart-simple', 'Overview'),
+    ('calls', '/calls', 'fa-phone', 'Calls'),
+    ('orders', '/orders', 'fa-box', 'Orders'),
+] %}
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="shell">
+    <aside class="sidebar" id="sidebar" aria-label="Main navigation">
+        <a class="brand" href="/">
+            <span class="brand-mark" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round">
+                    <path d="M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4"/>
+                </svg>
+            </span>
+            <span>Lisa Console<small>JV Möbel · Voice Assistant</small></span>
+        </a>
+
+        <nav>
+            <div class="nav-section">Workspace</div>
+            {% for endpoint, href, icon, label in nav %}
+            {% set active = request.endpoint == endpoint or request.endpoint == endpoint.rstrip('s') + '_detail' %}
+            <a class="nav-link-c {% if active %}active{% endif %}" href="{{ href }}" {% if active %}aria-current="page"{% endif %}>
+                <i class="fas {{ icon }}" aria-hidden="true"></i>{{ label }}
             </a>
-            <div class="navbar-nav ms-auto">
-                <a class="nav-link" href="/">
-                    <i class="fas fa-home me-1"></i>Dashboard
-                </a>
-                <a class="nav-link" href="/calls">
-                    <i class="fas fa-phone me-1"></i>Calls
-                </a>
-                <a class="nav-link" href="/orders">
-                    <i class="fas fa-shopping-cart me-1"></i>Orders
-                </a>
-                {% if current_user.is_authenticated %}
-                {% if current_user.is_admin %}
-                <a class="nav-link" href="{{ url_for('auth.users') }}">
-                    <i class="fas fa-users me-1"></i>Users
-                </a>
-                {% endif %}
-                <span class="navbar-text ms-3 me-2">
-                    <i class="fas fa-user me-1"></i>{{ current_user.username }}
-                </span>
-                <form method="post" action="{{ url_for('auth.logout') }}" class="d-flex">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="btn btn-outline-light btn-sm">
-                        <i class="fas fa-sign-out-alt me-1"></i>Logout
-                    </button>
-                </form>
-                {% endif %}
+            {% endfor %}
+            {% if current_user.is_authenticated and current_user.is_admin %}
+            <div class="nav-section">Admin</div>
+            {% set active = request.endpoint == 'auth.users' %}
+            <a class="nav-link-c {% if active %}active{% endif %}" href="{{ url_for('auth.users') }}" {% if active %}aria-current="page"{% endif %}>
+                <i class="fas fa-users" aria-hidden="true"></i>Users
+            </a>
+            {% endif %}
+        </nav>
+
+        {% if current_user.is_authenticated %}
+        <div class="sidebar-footer">
+            <span class="avatar" aria-hidden="true">{{ current_user.username[:2] }}</span>
+            <div class="user-meta">
+                <strong>{{ current_user.username }}</strong>
+                <span>{{ current_user.role.value | capitalize }}</span>
             </div>
+            <form method="post" action="{{ url_for('auth.logout') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="icon-btn" aria-label="Sign out" title="Sign out">
+                    <i class="fas fa-arrow-right-from-bracket" aria-hidden="true"></i>
+                </button>
+            </form>
         </div>
-    </nav>
+        {% endif %}
+    </aside>
 
-    <div class="container mt-4">
-        {% with messages = get_flashed_messages(with_categories=true) %}
-        {% for category, message in messages %}
-        <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
-            {{ message }}
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        </div>
-        {% endfor %}
-        {% endwith %}
-        {% block content %}{% endblock %}
+    <div class="main">
+        <header class="topbar">
+            <button type="button" class="icon-btn" id="menu-toggle" aria-label="Open navigation"
+                    aria-controls="sidebar" aria-expanded="false">
+                <i class="fas fa-bars" aria-hidden="true"></i>
+            </button>
+            <strong>Lisa Console</strong>
+        </header>
+
+        <main class="content" id="main" tabindex="-1">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+            {% for category, message in messages %}
+            <div class="flash {{ 'tone-good' if category == 'success' else 'tone-serious' }}" role="{{ 'status' if category == 'success' else 'alert' }}">
+                <i class="fas {{ 'fa-circle-check' if category == 'success' else 'fa-circle-exclamation' }}" aria-hidden="true"></i>
+                <span>{{ message }}</span>
+            </div>
+            {% endfor %}
+            {% endwith %}
+            {% block content %}{% endblock %}
+        </main>
     </div>
+</div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <script>
-    // Attach the CSRF token to every same-origin state-changing fetch()
-    (function () {
-        const token = document.querySelector('meta[name="csrf-token"]').content;
-        const originalFetch = window.fetch;
-        window.fetch = function (resource, options = {}) {
-            const method = (options.method || 'GET').toUpperCase();
-            if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
-                options.headers = new Headers(options.headers || {});
-                options.headers.set('X-CSRFToken', token);
-            }
-            return originalFetch(resource, options);
-        };
-    })();
-    </script>
-    {% block scripts %}{% endblock %}
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script>
+// Attach the CSRF token to every same-origin state-changing fetch()
+(function () {
+    const token = document.querySelector('meta[name="csrf-token"]').content;
+    const originalFetch = window.fetch;
+    window.fetch = function (resource, options = {}) {
+        const method = (options.method || 'GET').toUpperCase();
+        if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+            options.headers = new Headers(options.headers || {});
+            options.headers.set('X-CSRFToken', token);
+        }
+        return originalFetch(resource, options);
+    };
+})();
+
+// Mobile navigation drawer
+(function () {
+    const sidebar = document.getElementById('sidebar');
+    const toggle = document.getElementById('menu-toggle');
+    function setOpen(open) {
+        sidebar.classList.toggle('open', open);
+        toggle.setAttribute('aria-expanded', String(open));
+    }
+    toggle.addEventListener('click', function (event) {
+        event.stopPropagation();
+        setOpen(!sidebar.classList.contains('open'));
+    });
+    document.addEventListener('click', function (event) {
+        if (sidebar.classList.contains('open') && !sidebar.contains(event.target)) setOpen(false);
+    });
+    document.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape') setOpen(false);
+    });
+})();
+</script>
+{% block scripts %}{% endblock %}
 {% endblock %}
 </body>
 </html>

@@ -5,6 +5,8 @@ from flask_migrate import Migrate
 import click
 import logging
 import secrets
+from datetime import timezone
+from zoneinfo import ZoneInfo
 from config import Config, missing_settings
 from models import db, Call, Conversation, Order, CallStatus, User, UserRole, utcnow
 from auth import auth_bp
@@ -15,7 +17,7 @@ from jobs_queue import get_redis
 from calls import log_conversation, update_call_status
 from call_flow import VOICEMAIL_MAX_LENGTH, flow_bp
 from prompts import prompt
-from analytics import funnel_stats
+from analytics import dashboard_data
 from services import detect_language, send_voice_message_email
 from retention import anonymize_calls_older_than
 from voice_messages import (
@@ -56,6 +58,14 @@ app.register_blueprint(flow_bp)
 app.after_request(apply_voice)
 
 
+@app.template_filter("local_time")
+def local_time(value, fmt="%d.%m.%Y %H:%M"):
+    """Naive UTC timestamp from the DB -> office time zone"""
+    if value is None:
+        return "—"
+    return value.replace(tzinfo=timezone.utc).astimezone(ZoneInfo(Config.TIMEZONE)).strftime(fmt)
+
+
 @app.route("/health", methods=["GET"])
 def health_check():
     """Liveness plus dependency checks (database, Redis)"""
@@ -82,28 +92,8 @@ def health_check():
 
 @app.route("/", methods=["GET"])
 def dashboard():
-    """Dashboard home page"""
-    # Get statistics
-    total_calls = Call.query.count()
-    completed_calls = Call.query.filter_by(status=CallStatus.COMPLETED).count()
-    processing_calls = Call.query.filter_by(status=CallStatus.PROCESSING).count()
-    problem_calls = Call.query.filter_by(status=CallStatus.PROBLEM).count()
-    handled_calls = Call.query.filter_by(status=CallStatus.HANDLED).count()
-    
-    stats = {
-        "total_calls": total_calls,
-        "completed_calls": completed_calls,
-        "processing_calls": processing_calls,
-        "problem_calls": problem_calls,
-        "handled_calls": handled_calls,
-    }
-    
-    # Get recent calls
-    recent_calls = Call.query.order_by(desc(Call.created_at)).limit(10).all()
-    
-    return render_template(
-        "dashboard.html", stats=stats, recent_calls=recent_calls, funnel=funnel_stats()
-    )
+    """Console overview"""
+    return render_template("dashboard.html", **dashboard_data())
 
 
 @app.route("/calls", methods=["GET"])
