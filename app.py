@@ -12,12 +12,13 @@ from models import db, Call, Conversation, Order, CallStatus, User, UserRole, ut
 from auth import auth_bp
 from security import init_security, exempt_webhooks_from_csrf
 from voice import apply_voice
+import ui
 from sqlalchemy import desc, text
 from jobs_queue import get_redis
 from calls import log_conversation, update_call_status
 from call_flow import VOICEMAIL_MAX_LENGTH, flow_bp
 from prompts import prompt
-from analytics import dashboard_data
+from analytics import call_outcomes, dashboard_data
 from services import detect_language, send_voice_message_email
 from retention import anonymize_calls_older_than
 from voice_messages import (
@@ -56,6 +57,7 @@ init_security(app)
 app.register_blueprint(auth_bp)
 app.register_blueprint(flow_bp)
 app.after_request(apply_voice)
+ui.register(app)
 
 
 @app.template_filter("local_time")
@@ -121,13 +123,15 @@ def calls():
         page=page, per_page=20, error_out=False
     )
     
-    return render_template("calls.html", calls=calls)
+    return render_template(
+        "calls.html", calls=calls, outcomes=call_outcomes([c.id for c in calls.items])
+    )
 
 
 @app.route("/calls/<int:call_id>", methods=["GET"])
 def call_detail(call_id):
     """Call detail page"""
-    call = Call.query.get_or_404(call_id)
+    call = db.get_or_404(Call, call_id)
     conversations = (
         Conversation.query.filter_by(call_id=call_id)
         .order_by(Conversation.timestamp)
@@ -136,7 +140,11 @@ def call_detail(call_id):
     orders = Order.query.filter_by(call_id=call_id).all()
     
     return render_template(
-        "call_detail.html", call=call, conversations=conversations, orders=orders
+        "call_detail.html",
+        call=call,
+        conversations=conversations,
+        orders=orders,
+        outcome=call_outcomes([call.id])[call.id],
     )
 
 
@@ -150,7 +158,7 @@ def update_call_status_api(call_id):
         if not new_status or new_status not in [status.name for status in CallStatus]:
             return {"error": "Invalid status"}, 400
         
-        call = Call.query.get_or_404(call_id)
+        call = db.get_or_404(Call, call_id)
         call.status = CallStatus[new_status]
         try:
             db.session.commit()
@@ -177,7 +185,7 @@ def update_order_status_api(order_id):
         if not new_status:
             return {"error": "Status is required"}, 400
         
-        order = Order.query.get_or_404(order_id)
+        order = db.get_or_404(Order, order_id)
         order.status = new_status
         if notes:
             order.notes = notes
@@ -225,14 +233,21 @@ def orders():
         page=page, per_page=20, error_out=False
     )
     
-    return render_template("orders.html", orders=orders)
+    return render_template("orders.html", orders=orders, statuses=order_statuses())
 
 
 @app.route("/orders/<int:order_id>", methods=["GET"])
 def order_detail(order_id):
     """Order detail page"""
-    order = Order.query.get_or_404(order_id)
-    return render_template("order_detail.html", order=order)
+    order = db.get_or_404(Order, order_id)
+    return render_template("order_detail.html", order=order, statuses=order_statuses())
+
+
+def order_statuses():
+    """Distinct order statuses in use, for filters and suggestions"""
+    return [
+        row[0] for row in db.session.query(Order.status).distinct().order_by(Order.status) if row[0]
+    ]
 
 
 @app.route("/webhook/recorded", methods=["POST"])
