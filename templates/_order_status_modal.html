@@ -9,10 +9,11 @@
             <div class="modal-body">
                 <input type="hidden" id="orderStatusId">
                 <div class="mb-3">
-                    <label for="orderStatusValue" class="form-label">Status</label>
-                    <input type="text" class="form-control" id="orderStatusValue" list="orderStatusOptions" required maxlength="100">
+                    <label for="orderStatusValue" class="form-label">Staff status</label>
+                    <input type="text" class="form-control" id="orderStatusValue" list="orderStatusOptions" required maxlength="100"
+                           placeholder="e.g. Callback done, Shipped">
                     <datalist id="orderStatusOptions">
-                        {% for s in (statuses or []) | list + ['Shipped', 'Delivered', 'Cancelled'] %}<option value="{{ s }}">{% endfor %}
+                        {% for s in ((statuses or []) | list + ['Callback done', 'Shipped', 'Delivered', 'Cancelled']) | unique %}<option value="{{ s }}">{% endfor %}
                     </datalist>
                 </div>
                 <div>

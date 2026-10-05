@@ -17,7 +17,19 @@ from twilio.twiml.voice_response import VoiceResponse
 import order_status as status
 from calls import create_or_get_call, log_conversation, update_call_status
 from config import Config
-from models import Call, CallStatus, Order, db
+from models import (
+    LOOKUP_FOUND,
+    LOOKUP_NOT_FOUND,
+    VERIFICATION_FAILED,
+    VERIFICATION_NOT_POSSIBLE,
+    VERIFICATION_PENDING,
+    VERIFICATION_PHONE,
+    VERIFICATION_POSTAL_CODE,
+    Call,
+    CallStatus,
+    Order,
+    db,
+)
 from order_lookup import get_order_from_afterbuy
 from prompts import prompt
 from services import detect_language
@@ -272,17 +284,15 @@ def speak_status(response, call, number, order_data, verified):
 
 
 def _save_order(call, number, order_data, verification=None):
-    order = Order(call_id=call.id, order_number=number)
+    order = Order(call_id=call.id, order_number=number, verification=verification)
     if order_data:
+        order.lookup_result = LOOKUP_FOUND
         order_date = status.parse_order_date(order_data.get("order_date"))
-        order.status = "Found in AfterBuy"
-        order.notes = f"Verification: {verification or 'pending'}"
         if order_date:
             start, end = status.delivery_window(order_date)
             order.promised_delivery_date = start + (end - start) / 2
     else:
-        order.status = "Not Found"
-        order.notes = "Order not found in AfterBuy"
+        order.lookup_result = LOOKUP_NOT_FOUND
     db.session.add(order)
     db.session.commit()
 
@@ -295,7 +305,7 @@ def _set_verification(call, number, result):
         .first()
     )
     if order:
-        order.notes = f"Verification: {result}"
+        order.verification = result
         db.session.commit()
 
 
@@ -393,14 +403,14 @@ def order_number_input():
 
     _event(call, EVENT_ORDER_FOUND, user_input=number)
     if status.phone_matches(call.phone_number, status.order_phone(order_data)):
-        _save_order(call, number, order_data, "caller's phone matches")
+        _save_order(call, number, order_data, VERIFICATION_PHONE)
         _event(call, EVENT_VERIFIED, user_input="phone")
         speak_status(response, call, number, order_data, verified=True)
     elif status.order_postal_code(order_data):
-        _save_order(call, number, order_data, "postcode requested")
+        _save_order(call, number, order_data, VERIFICATION_PENDING)
         render_plz(response, call, number)
     else:
-        _save_order(call, number, order_data, "not possible (no phone or postcode on the order)")
+        _save_order(call, number, order_data, VERIFICATION_NOT_POSSIBLE)
         _event(call, EVENT_NOT_VERIFIED, user_input="no_phone_or_postal_code")
         speak_status(response, call, number, order_data, verified=False)
     return response
@@ -419,7 +429,7 @@ def plz_input():
 
     if status.postal_code_matches(_digits(), status.order_postal_code(order_data)):
         _event(call, EVENT_VERIFIED, user_input="postal_code")
-        _set_verification(call, number, "postal code")
+        _set_verification(call, number, VERIFICATION_POSTAL_CODE)
         speak_status(response, call, number, order_data, verified=True)
         return response
 
@@ -431,7 +441,7 @@ def plz_input():
         render_plz(response, call, number, attempt + 1)
     else:
         _event(call, EVENT_NOT_VERIFIED, user_input="postal_code_mismatch")
-        _set_verification(call, number, "failed (postcode did not match)")
+        _set_verification(call, number, VERIFICATION_FAILED)
         speak_status(response, call, number, order_data, verified=False)
     return response
 

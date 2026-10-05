@@ -8,12 +8,26 @@ import secrets
 from datetime import timezone
 from zoneinfo import ZoneInfo
 from config import Config, missing_settings
-from models import db, Call, Conversation, Order, CallStatus, User, UserRole, utcnow
+from models import (
+    LOOKUP_FOUND,
+    LOOKUP_NOT_FOUND,
+    VERIFICATION_FAILED,
+    Call,
+    CallStatus,
+    Conversation,
+    Order,
+    User,
+    UserRole,
+    db,
+    utcnow,
+)
 from auth import auth_bp
 from security import init_security, exempt_webhooks_from_csrf
 from voice import apply_voice
 import ui
-from sqlalchemy import desc, text
+from sqlalchemy import desc, func, or_, text
+import order_status
+from order_lookup import get_order_from_afterbuy
 from jobs_queue import get_redis
 from calls import log_conversation, update_call_status
 from call_flow import VOICEMAIL_MAX_LENGTH, flow_bp
@@ -210,41 +224,82 @@ def update_order_status_api(order_id):
 
 @app.route("/orders", methods=["GET"])
 def orders():
-    """Orders list page with filtering"""
+    """Orders looked up in calls, with filters"""
     page = request.args.get("page", 1, type=int)
-    status_filter = request.args.get("status")
+    result_filter = request.args.get("result")
     phone_filter = request.args.get("phone")
     order_number_filter = request.args.get("order_number")
-    
-    # Build query
+
     query = Order.query.join(Call)
-    
-    if status_filter:
-        query = query.filter(Order.status == status_filter)
-    
+    if result_filter in (LOOKUP_FOUND, LOOKUP_NOT_FOUND):
+        query = query.filter(Order.lookup_result == result_filter)
+    elif result_filter == "verification_failed":
+        query = query.filter(Order.verification == VERIFICATION_FAILED)
+    elif result_filter == "overdue":
+        query = query.filter(
+            Order.lookup_result == LOOKUP_FOUND,
+            Order.promised_delivery_date < utcnow().date(),
+            or_(Order.status.is_(None), ~func.lower(Order.status).in_(["delivered", "cancelled"])),
+        )
     if phone_filter:
         query = query.filter(Call.phone_number.contains(phone_filter))
-    
     if order_number_filter:
         query = query.filter(Order.order_number.contains(order_number_filter))
-    
-    # Paginate results
+
     orders = query.order_by(desc(Order.created_at)).paginate(
         page=page, per_page=20, error_out=False
     )
-    
     return render_template("orders.html", orders=orders, statuses=order_statuses())
 
 
 @app.route("/orders/<int:order_id>", methods=["GET"])
 def order_detail(order_id):
-    """Order detail page"""
+    """Order page with live Afterbuy data for staff"""
     order = db.get_or_404(Order, order_id)
-    return render_template("order_detail.html", order=order, statuses=order_statuses())
+    afterbuy, afterbuy_error = None, False
+    if order.lookup_result == LOOKUP_FOUND:
+        try:
+            afterbuy = afterbuy_summary(get_order_from_afterbuy(order.order_number))
+            afterbuy_error = afterbuy is None
+        except Exception as e:
+            logger.error(f"Afterbuy lookup for order page {order.order_number} failed: {e}")
+            afterbuy_error = True
+    return render_template(
+        "order_detail.html",
+        order=order,
+        statuses=order_statuses(),
+        afterbuy=afterbuy,
+        afterbuy_error=afterbuy_error,
+    )
+
+
+def afterbuy_summary(data):
+    """Fields from an Afterbuy order that staff need on the order page"""
+    if not data:
+        return None
+    buyer = data.get("buyer") or {}
+    payment = data.get("payment") or {}
+    full = order_status.parse_amount(payment.get("full_amount"))
+    paid = order_status.parse_amount(payment.get("already_paid")) or 0.0
+    return {
+        "customer": " ".join(p for p in (buyer.get("first_name"), buyer.get("last_name")) if p) or None,
+        "phone": buyer.get("phone"),
+        "email": buyer.get("email"),
+        "street": buyer.get("street"),
+        "postal_code": buyer.get("postal_code"),
+        "city": buyer.get("city"),
+        "country": buyer.get("country"),
+        "order_date": order_status.parse_order_date(data.get("order_date")),
+        "invoice_number": data.get("invoice_number"),
+        "order_id": data.get("order_id"),
+        "total": full,
+        "paid": paid if full is not None else None,
+        "open": order_status.open_amount(data) if full is not None else None,
+    }
 
 
 def order_statuses():
-    """Distinct order statuses in use, for filters and suggestions"""
+    """Distinct staff statuses in use, for suggestions"""
     return [
         row[0] for row in db.session.query(Order.status).distinct().order_by(Order.status) if row[0]
     ]

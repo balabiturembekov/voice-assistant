@@ -161,7 +161,9 @@ def test_found_and_verified_by_phone(client, call, afterbuy):
     assert "Max" not in spoken  # no names on the phone
     assert gather_action(root).startswith("/webhook/next?")
     assert "verified=1" in gather_action(root)
-    assert Order.query.one().notes == "Verification: caller's phone matches"
+    saved = Order.query.one()
+    assert (saved.lookup_result, saved.verification) == ("found", "phone")
+    assert saved.notes is None and saved.status is None  # staff fields stay empty
     db.session.refresh(call)
     assert call.status == CallStatus.COMPLETED
 
@@ -225,7 +227,7 @@ def test_not_found_retry_then_options(client, call, afterbuy):
     assert "wieder keinen Auftrag" in text(root)
     assert "Für einen neuen Versuch drücken Sie die 1" in text(root)
     assert "kind=not_found" in gather_action(root)
-    assert Order.query.filter_by(status="Not Found").count() == 2
+    assert Order.query.filter_by(lookup_result="not_found").count() == 2
 
 
 def test_order_number_silence_twice_goes_to_team(client, call, open_hours):
@@ -420,7 +422,8 @@ def test_postcode_attempts_are_logged_and_order_marked(client, call, afterbuy):
     assert ("ivr_plz_mismatch", "555 attempt=1") in steps
     assert ("ivr_plz_mismatch", "555 attempt=2 no_input") in steps
     assert ("status_spoken", "unverified") in steps
-    assert Order.query.one().notes == "Verification: failed (postcode did not match)"
+    assert Order.query.one().verification == "failed"
+    assert Order.query.one().notes is None
     # the wrong postcode itself is never stored
     assert not any("11111" in (value or "") for _, value in steps)
 

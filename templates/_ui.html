@@ -8,9 +8,21 @@
 
 {% macro order_status(status) -%}{{ badge(order_status_style(status)) }}{%- endmacro %}
 
-{% macro page_header(title, subtitle=None, crumbs=None) -%}
+{% macro lookup(result) -%}{{ badge(lookup_style(result)) }}{%- endmacro %}
+
+{% macro verification(value) -%}{{ badge(verification_style(value)) }}{%- endmacro %}
+
+{% macro overdue() -%}<span class="badge-c tone-serious"><i class="fas fa-triangle-exclamation" aria-hidden="true"></i>Overdue</span>{%- endmacro %}
+
+{% macro page_header(title, subtitle=None, crumbs=None, back=None) -%}
 <div class="page-header">
     <div>
+        {% if back %}
+        {# Returns to the previous page (keeps list filters); falls back to `back` #}
+        <a class="back-link" href="{{ back[1] }}" data-back>
+            <i class="fas fa-arrow-left" aria-hidden="true"></i>Back to {{ back[0] }}
+        </a>
+        {% endif %}
         {% if crumbs %}
         <nav aria-label="Breadcrumb">
             <ol class="crumbs">

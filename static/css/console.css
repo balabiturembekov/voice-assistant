@@ -414,3 +414,13 @@ body.console .modal-title { font-size: 16px; font-weight: 600; }
     animation: toast-in 200ms ease-out;
 }
 @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+/* Back link above detail page titles */
+.back-link {
+    display: inline-flex; align-items: center; gap: 8px; margin: 0 0 12px -8px;
+    min-height: 36px; padding: 0 10px; border-radius: var(--radius-sm);
+    color: var(--text-muted); font-size: 14px; font-weight: 500; text-decoration: none;
+    transition: background-color 150ms ease-out, color 150ms ease-out;
+}
+.back-link:hover { background: var(--surface-2); color: var(--text); }
+.back-link i { font-size: 13px; }
