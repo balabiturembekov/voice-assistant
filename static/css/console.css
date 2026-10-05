@@ -461,3 +461,18 @@ body.console .modal-title { font-size: 16px; font-weight: 600; }
 .activity .a-icon { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; }
 .activity time { font-size: 12px; color: var(--text-subtle); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .menu-btn { position: relative; }
+
+/* Destructive actions */
+.btn-danger-c { background: var(--serious); color: #fff; }
+.btn-danger-c:hover { filter: brightness(0.92); color: #fff; }
+.btn-danger-ghost { background: transparent; color: var(--serious); border-color: transparent; }
+.btn-danger-ghost:hover { background: var(--serious-bg); color: var(--serious); }
+.bulk-bar {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 10px 20px; border-bottom: 1px solid var(--border); background: var(--serious-bg);
+    font-size: 14px; font-weight: 500;
+}
+.bulk-bar[hidden] { display: none; }
+.check-cell { width: 44px; }
+.check-cell input { width: 18px; height: 18px; accent-color: var(--primary); cursor: pointer; }
+.danger-list { margin: 8px 0 0; padding-left: 18px; font-size: 14px; color: var(--text-muted); }

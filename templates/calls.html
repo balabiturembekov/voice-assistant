@@ -3,6 +3,67 @@
 
 {% block title %}Calls · Lisa Console{% endblock %}
 
+{% block scripts %}
+{% if current_user.is_admin %}
+<div class="modal fade" id="bulkDeleteModal" tabindex="-1" aria-labelledby="bulkDeleteTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <form class="modal-content" id="bulkDeleteDialog">
+            <div class="modal-header">
+                <h2 class="modal-title" id="bulkDeleteTitle">Delete <span id="bulkDeleteCount"></span> call(s)?</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-1" style="font-size: 14px;">This permanently deletes, for every selected call:</p>
+                <ul class="danger-list">
+                    <li>the conversation and order lookups</li>
+                    <li>voice messages, transcriptions <strong>and the recordings at Twilio</strong></li>
+                </ul>
+                <p class="mt-3 mb-2" style="font-size: 14px;">It cannot be undone. Type <strong>DELETE</strong> to confirm.</p>
+                <input type="text" class="form-control" id="bulkConfirmInput" autocomplete="off" aria-label="Type DELETE to confirm">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-c btn-ghost" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn-c btn-danger-c" id="bulkDeleteSubmit" disabled>Delete permanently</button>
+            </div>
+        </form>
+    </div>
+</div>
+<script>
+(function () {
+    const checks = () => [...document.querySelectorAll('.row-check')];
+    const bar = document.getElementById('bulkBar');
+    const all = document.getElementById('checkAll');
+    function update() {
+        const n = checks().filter(c => c.checked).length;
+        document.getElementById('bulkCount').textContent = n;
+        bar.hidden = n === 0;
+        all.checked = n > 0 && n === checks().length;
+        all.indeterminate = n > 0 && n < checks().length;
+    }
+    if (!all) return;
+    all.addEventListener('change', () => { checks().forEach(c => c.checked = all.checked); update(); });
+    checks().forEach(c => c.addEventListener('change', update));
+
+    const input = document.getElementById('bulkConfirmInput');
+    const submit = document.getElementById('bulkDeleteSubmit');
+    input.addEventListener('input', () => { submit.disabled = input.value.trim().toUpperCase() !== 'DELETE'; });
+    window.openBulkDelete = function () {
+        document.getElementById('bulkDeleteCount').textContent = checks().filter(c => c.checked).length;
+        input.value = ''; submit.disabled = true;
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('bulkDeleteModal')).show();
+        setTimeout(() => input.focus(), 300);
+    };
+    document.getElementById('bulkDeleteDialog').addEventListener('submit', function (event) {
+        event.preventDefault();
+        document.getElementById('bulkConfirmValue').value = input.value.trim();
+        submit.disabled = true;
+        document.getElementById('bulkForm').submit();
+    });
+})();
+</script>
+{% endif %}
+{% endblock %}
+
 {% block content %}
 {% set args = request.args %}
 {% set filtered = args.get('phone') or args.get('status') or args.get('language') %}
@@ -43,10 +104,23 @@
     </form>
 
     {% if calls.items %}
+    {% set can_delete = current_user.is_admin %}
+    <form method="post" action="{{ url_for('delete_selected_calls') }}" id="bulkForm">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="confirm" id="bulkConfirmValue">
+    {% if can_delete %}
+    <div class="bulk-bar" id="bulkBar" hidden>
+        <span><span id="bulkCount">0</span> selected</span>
+        <button type="button" class="btn-c btn-danger-c btn-sm-c" onclick="openBulkDelete()">
+            <i class="fas fa-trash-can" aria-hidden="true"></i>Delete
+        </button>
+    </div>
+    {% endif %}
     <div class="table-wrap">
         <table class="table-c">
             <thead>
                 <tr>
+                    {% if can_delete %}<th scope="col" class="check-cell"><input type="checkbox" id="checkAll" aria-label="Select all calls on this page"></th>{% endif %}
                     <th scope="col">Caller</th>
                     <th scope="col">Outcome</th>
                     <th scope="col">Status</th>
@@ -58,6 +132,7 @@
             {% for call in calls.items %}
             {% set outcome, tone = outcomes[call.id] %}
             <tr>
+                {% if can_delete %}<td class="check-cell"><input type="checkbox" name="call_ids" value="{{ call.id }}" class="row-check" aria-label="Select call from {{ call.phone_number }}"></td>{% endif %}
                 <td>
                     <div class="cell-phone">
                         <span class="avatar" aria-hidden="true"><i class="fas fa-phone"></i></span>
@@ -78,6 +153,7 @@
             </tbody>
         </table>
     </div>
+    </form>
     {{ ui.pagination(calls, "calls") }}
     {% elif filtered %}
     {{ ui.empty("fa-filter-circle-xmark", "No calls match these filters.", url_for('calls'), "Reset filters") }}
