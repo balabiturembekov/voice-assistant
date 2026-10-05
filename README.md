@@ -45,7 +45,8 @@ COMPANY_NAME=Your Company Name
 WEBSITE_URL=https://your-website.com
 
 # Voice Configuration
-VOICE_NAME=alice  # или polly.Joanna, polly.Emma и др.
+VOICE_DE=Google.de-DE-Chirp3-HD-Aoede
+VOICE_EN=Google.en-US-Chirp3-HD-Aoede
 
 # Flask Configuration
 FLASK_ENV=development
@@ -223,18 +224,18 @@ docker compose exec voice-assistant flask --app app create-user admin --role adm
 
 ### Голоса Twilio
 
-```python
-# Стандартные голоса
-VOICE_NAME=alice
-VOICE_NAME=man
-VOICE_NAME=woman
+Голос и язык для каждой фразы `<Say>` проставляются централизованно (`voice.py`)
+по языку звонка. Голоса задаются в `.env`, после изменения достаточно перезапуска:
 
-# Amazon Polly голоса (премиум)
-VOICE_NAME=polly.Joanna
-VOICE_NAME=polly.Emma
-VOICE_NAME=polly.Amy
-VOICE_NAME=polly.Kimberly
+```bash
+VOICE_DE=Google.de-DE-Chirp3-HD-Aoede   # по умолчанию, генеративный (самый живой)
+VOICE_EN=Google.en-US-Chirp3-HD-Aoede
 ```
+
+Альтернативы для немецкого: `Google.de-DE-Chirp3-HD-Kore` / `-Leda` / `-Zephyr` (женские),
+`Google.de-DE-Chirp3-HD-Charon` / `-Puck` (мужские), `Polly.Vicki-Generative`,
+`Polly.Vicki-Neural`, `Google.de-DE-Neural2-H`. Генеративные голоса у Twilio в Public Beta;
+при проблемах переключитесь на `Polly.Vicki-Neural`.
 
 ### Настройка компании
 

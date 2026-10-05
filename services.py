@@ -35,8 +35,8 @@ def get_greeting_message(language: str) -> str:
     """
 
     messages = {
-        "de": "Hallo, mein Name ist Lisa. ich bin Ihr automatischer Servicemitarbeiter. Zur Qualitätssicherung können Gespräche aufgezeichnet werden.",
-        "en": "Hello, you're speaking with Liza, your voice assistant. May we process your call to improve our service quality?",
+        "de": "Guten Tag, hier spricht Lisa, Ihre digitale Service-Assistentin. Zur Qualitätssicherung kann dieses Gespräch aufgezeichnet werden.",
+        "en": "Hello, this is Lisa, your digital service assistant. This call may be recorded for quality purposes.",
     }
     return messages.get(language, messages["de"])
 
@@ -53,31 +53,31 @@ def format_order_number_for_speech(order_number) -> str:
 def get_goodbye_message(language="de") -> str:
     """Get consistent goodbye message based on language"""
     if language == "de":
-        return "Wir bedanken uns für Ihren Anruf und stehen bei weiteren Fragen zur Verfügung!"
+        return "Vielen Dank für Ihren Anruf. Bei weiteren Fragen sind wir gerne für Sie da. Auf Wiederhören!"
     else:
-        return "Thank you for calling. We are available for any further questions!"
+        return "Thank you for calling. If you have any further questions, we are happy to help. Goodbye!"
 
 
 def get_order_availability_prompt(language: str) -> str:
     """Get prompt asking if user has order number"""
     if language == "de":
-        return "Haben Sie eine Bestellnummer? Drücken Sie die 1 für Ja, die 2 für Nein."
+        return "Haben Sie Ihre Bestell- oder Rechnungsnummer zur Hand? Dann drücken Sie bitte die 1. Wenn nicht, drücken Sie die 2."
     else:
-        return "Do you have an order number? Press 1 for Yes, 2 for No."
+        return "Do you have your order or invoice number at hand? Then please press 1. If not, press 2."
 
 
 def get_order_input_prompt(language: str) -> str:
     """Get clear instructions for order number input"""
     if language == "de":
-        return "Bitte geben Sie Ihre Bestellnummer über die Tastatur ein. Drücken Sie die # wenn Sie fertig sind."
+        return "Bitte geben Sie Ihre Bestell- oder Rechnungsnummer über die Telefontastatur ein und bestätigen Sie mit der Rautetaste."
     else:
-        return "Please enter your order number using the keypad. Press the hash key # when you are finished. You have 30 seconds."
+        return "Please enter your order or invoice number using the keypad, then press the hash key."
 
 
 def get_no_order_transfer_message(language: str) -> str:
     """Get message when transferring due to no order number"""
     if language == "de":
-        return "Verstanden. Ich verbinde Sie jetzt mit einem unserer Mitarbeiter, der Ihnen bei Ihrer Anfrage helfen kann. Einen Moment bitte."
+        return "Verstanden. Ich verbinde Sie jetzt mit einem unserer Mitarbeiter, der Ihnen bei Ihrer Anfrage helfen kann. Einen Moment, bitte."
     else:
         return "Understood. I'm now connecting you with one of our staff members who can help you with your inquiry. Please hold."
 
@@ -107,7 +107,7 @@ def check_delivery_overdue(order_data: dict) -> bool:
 def get_overdue_delivery_message(language: str) -> str:
     """Get message for overdue delivery cases"""
     if language == "de":
-        return "Ihre Lieferung wird in Kürze erwartet. Ich verbinde Sie nun mit einem Mitarbeiter für weitere Informationen."
+        return "Ihre Lieferung wird in Kürze erwartet. Für weitere Informationen verbinde ich Sie jetzt mit einem Mitarbeiter."
     else:
         return "I'm sorry, but your delivery has not arrived yet. I'm now connecting you with one of our staff members who can help you with this issue. Please hold."
 

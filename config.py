@@ -21,8 +21,11 @@ class Config:
     COMPANY_NAME = os.getenv("COMPANY_NAME", "Your Company")
     WEBSITE_URL = os.getenv("WEBSITE_URL", "https://your-website.com")
 
-    # Voice Configuration
-    VOICE_NAME = os.getenv("VOICE_NAME", "alice")
+    # Text-to-speech voices (Twilio <Say>), one per call language.
+    # Generative Google Chirp3-HD voices sound the most natural; alternatives:
+    # Polly.Vicki-Generative, Polly.Vicki-Neural, Google.de-DE-Neural2-H
+    VOICE_DE = os.getenv("VOICE_DE", "Google.de-DE-Chirp3-HD-Aoede")
+    VOICE_EN = os.getenv("VOICE_EN", "Google.en-US-Chirp3-HD-Aoede")
 
     # Validate X-Twilio-Signature on /webhook/* (needs TWILIO_AUTH_TOKEN)
     TWILIO_VALIDATE_REQUESTS = (
