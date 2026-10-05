@@ -1,10 +1,15 @@
 from flask import Flask, request, Response, render_template
 from twilio.twiml.voice_response import VoiceResponse
+from werkzeug.middleware.proxy_fix import ProxyFix
+import click
 import logging
 import re
+import secrets
 from datetime import datetime, timedelta, timezone
-from config import Config
-from models import db, Call, Conversation, Order, CallStatus
+from config import Config, missing_settings
+from models import db, Call, Conversation, Order, CallStatus, User, UserRole
+from auth import auth_bp
+from security import init_security, exempt_webhooks_from_csrf
 from sqlalchemy import desc
 from afterbuy_client import AfterbuyClient
 from services import (
@@ -27,9 +32,24 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.config.from_object(Config)
+# nginx sets X-Forwarded-For/Proto; needed for the real client IP and for the
+# https:// URL that Twilio signs
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
+
+_missing = missing_settings()
+if _missing:
+    if not Config.FLASK_DEBUG:
+        raise RuntimeError(f"Missing required settings: {', '.join(_missing)}")
+    logger.warning(f"Missing settings (ignored in debug): {', '.join(_missing)}")
+if not app.config.get("SECRET_KEY"):
+    app.config["SECRET_KEY"] = secrets.token_hex(32)
+    app.config["SESSION_COOKIE_SECURE"] = False
+    app.config["REMEMBER_COOKIE_SECURE"] = False
 
 # Initialize database
 db.init_app(app)
+init_security(app)
+app.register_blueprint(auth_bp)
 
 
 def create_or_get_call(call_sid, phone_number, language):
@@ -1463,7 +1483,7 @@ def handle_help():
         caller_number = request.form.get("From", "")
         language = detect_language(caller_number)
         
-        logger.info(f"Help request from {caller_number}: {speech_result}")
+        logger.info(f"Help request from {caller_number} ({len(speech_result)} chars)")
         
         response = VoiceResponse()
         
@@ -1899,7 +1919,7 @@ def handle_recorded():
         logger.info(f"Recording URL: {recording_url}")
         logger.info(f"Recording Duration: {duration_seconds} seconds")
         logger.info(f"Recording finished by: {finish_method}")
-        logger.info(f"Recording Transcription: {recording_transcription}")
+        logger.info(f"Recording transcription: {len(recording_transcription)} chars")
 
         # Get call record
         call = Call.query.filter_by(call_sid=call_sid).first()
@@ -2037,7 +2057,7 @@ def handle_transcription():
         recording_sid = request.form.get("RecordingSid", "")
 
         logger.info(
-            f"Transcription received: Status={transcription_status}, Text='{transcription_text[:100]}...'"
+            f"Transcription received: Status={transcription_status}, length={len(transcription_text)}"
         )
 
         # Get call record
@@ -2132,7 +2152,7 @@ def handle_transcription():
             for conv in conversations_with_url:
                 if conv.user_input:
                     logger.debug(
-                        f"Checking conversation {conv.id} user_input for URL: {conv.user_input[:200]}"
+                        f"Checking conversation {conv.id} user_input for URL"
                     )
                     # Try to extract URL from user_input in different formats
                     # Format 1: "URL: https://..."
@@ -2204,7 +2224,7 @@ def handle_transcription():
                 for conv in conversations_with_url:
                     if conv.user_input:
                         logger.warning(
-                            f"Conversation {conv.id} user_input (first 300 chars): {conv.user_input[:300]}"
+                            f"Conversation {conv.id} user_input has no recording URL"
                         )
 
             # Check if email was already sent for this call to avoid duplicates
@@ -2355,7 +2375,7 @@ def handle_transcription():
                 )
                 # Log all conversations for debugging
                 all_conv_steps = [
-                    f"{c.step}: {c.user_input[:100] if c.user_input else 'empty'}"
+                    f"{c.step}: {'has input' if c.user_input else 'empty'}"
                     for c in Conversation.query.filter_by(call_id=call.id)
                     .order_by(Conversation.timestamp.desc())
                     .limit(10)
@@ -2577,80 +2597,38 @@ def api_health():
     }
 
 
-@app.route("/api/test-email", methods=["POST", "GET"])
-def test_email():
-    """Test email sending endpoint for debugging"""
-    try:
-        from services import send_voice_message_email
-        from config import Config
-        
-        # Get test parameters from request or use defaults
-        if request.method == "POST":
-            data = request.get_json() or {}
-            caller_number = data.get("caller_number", "+499876543210")
-            recording_url = data.get(
-                "recording_url",
-                "https://api.twilio.com/2010-04-01/Accounts/ACxxxxx/Recordings/RE987654321",
-            )
-            transcription_text = data.get(
-                "transcription_text",
-                "Это тестовое сообщение для проверки отправки email.",
-            )
-            duration_seconds = int(data.get("duration_seconds", 10))
-            language = data.get("language", "de")
-            order_number = data.get("order_number", "TEST12345")
-        else:
-            # GET request with defaults
-            caller_number = "+499876543210"
-            recording_url = "https://api.twilio.com/2010-04-01/Accounts/ACxxxxx/Recordings/RE987654321"
-            transcription_text = "Это тестовое сообщение для проверки отправки email."
-            duration_seconds = 10
-            language = "de"
-            order_number = "TEST12345"
-        
-        # Check email configuration
-        config_status = {
-            "MAIL_SERVER": Config.MAIL_SERVER or "NOT SET",
-            "MAIL_PORT": Config.MAIL_PORT,
-            "MAIL_USERNAME": Config.MAIL_USERNAME or "NOT SET",
-            "MAIL_PASSWORD": "SET" if Config.MAIL_PASSWORD else "NOT SET",
-            "MAIL_RECIPIENT": Config.MAIL_RECIPIENT or "NOT SET",
-            "MAIL_USE_SSL": Config.MAIL_USE_SSL,
-            "MAIL_USE_TLS": Config.MAIL_USE_TLS,
-        }
-        
-        logger.info(f"Test email endpoint called with config: {config_status}")
-        
-        # Try to send email
-        result = send_voice_message_email(
-            caller_number=caller_number,
-            recording_url=recording_url,
-            transcription_text=transcription_text,
-            duration_seconds=duration_seconds,
-            language=language,
-            order_number=order_number,
-        )
-        
-        if result:
-            return {
-                "status": "success",
-                "message": "Email sent successfully",
-                "config": config_status,
-            }, 200
-        else:
-            return {
-                "status": "error",
-                "message": "Email sending failed - check logs for details",
-                "config": config_status,
-            }, 500
-            
-    except Exception as e:
-        logger.error(f"Error in test_email endpoint: {str(e)}", exc_info=True)
-        return {
-            "status": "error",
-            "message": f"Error: {str(e)}",
-            "config": config_status if "config_status" in locals() else {},
-        }, 500
+exempt_webhooks_from_csrf(app)
+
+
+@app.cli.command("create-user")
+@click.argument("username")
+@click.option("--role", type=click.Choice(["admin", "operator"]), default="operator")
+@click.password_option()
+def create_user_command(username, role, password):
+    """Create a dashboard user: flask --app app create-user NAME --role admin"""
+    if User.query.filter_by(username=username).first():
+        raise click.ClickException(f"User {username} already exists")
+    user = User(username=username, role=UserRole(role))
+    user.set_password(password)
+    db.session.add(user)
+    db.session.commit()
+    click.echo(f"Created {role} user {username}")
+
+
+@app.cli.command("send-test-email")
+def send_test_email_command():
+    """Send a test voice-message email to MAIL_RECIPIENT"""
+    ok = send_voice_message_email(
+        caller_number="+499876543210",
+        recording_url="https://api.twilio.com/2010-04-01/Accounts/ACxxxxx/Recordings/RE987654321",
+        transcription_text="Test message from send-test-email",
+        duration_seconds=10,
+        language="de",
+        order_number="TEST12345",
+    )
+    if not ok:
+        raise click.ClickException("Email sending failed, see logs")
+    click.echo(f"Test email sent to {Config.MAIL_RECIPIENT}")
 
 
 if __name__ == "__main__":

@@ -3,8 +3,9 @@ twilio==8.10.0
 python-dotenv==1.0.0
 gunicorn==21.2.0
 requests==2.31.0
-openai==1.12.0
 Flask-SQLAlchemy==3.0.5
+Flask-Login==0.6.3
+Flask-WTF==1.2.1
 
 # Optional: External transcription services for better German transcription
 # Uncomment if you want to use Google Cloud Speech-to-Text:

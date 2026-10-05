@@ -174,10 +174,9 @@ Thumbs.db
 *.backup
 *.old
 
-# Test files
-test_*.py
-*_test.py
-tests/
+# Ad-hoc test scripts in the repo root (real tests live in tests/)
+/test_*.py
+/*_test.py
 
 # Documentation build
 docs/build/

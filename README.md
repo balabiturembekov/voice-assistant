@@ -67,6 +67,29 @@ python init_db.py
 python app.py
 ```
 
+## 🔐 Безопасность
+
+- **Секреты только из окружения.** Обязательные переменные: `SECRET_KEY`, `TWILIO_AUTH_TOKEN`,
+  `AFTERBUY_PARTNER_ID`, `AFTERBUY_PARTNER_TOKEN`, `AFTERBUY_ACCOUNT_TOKEN`, `AFTERBUY_USER_ID`,
+  `AFTERBUY_USER_PASSWORD`. Без них приложение не стартует (кроме `FLASK_DEBUG=True`).
+- **Вебхуки Twilio** (`/webhook/*`) принимаются только с валидной подписью `X-Twilio-Signature`.
+  Локально проверку можно выключить: `TWILIO_VALIDATE_REQUESTS=False`.
+- **Дашборд и `/api/*`** доступны только после входа. Роли: `admin` (плюс управление
+  пользователями на `/users`) и `operator`. Все формы и запросы защищены CSRF-токеном.
+- **Логи** не содержат текстов транскрипций, номера телефонов маскируются (`***678`).
+
+Первый администратор создаётся из CLI:
+
+```bash
+flask --app app create-user admin --role admin
+# в Docker:
+docker compose exec voice-assistant flask --app app create-user admin --role admin
+```
+
+Проверка отправки email: `flask --app app send-test-email`.
+
+Тесты: `pip install -r requirements-dev.txt && pytest`.
+
 ## 📞 Настройка Twilio
 
 1. Войдите в [Twilio Console](https://console.twilio.com/)

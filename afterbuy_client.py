@@ -2,6 +2,10 @@ import requests
 import xml.etree.ElementTree as ET
 from typing import Dict, Optional, List
 import re
+import logging
+from xml.sax.saxutils import escape
+
+logger = logging.getLogger(__name__)
 
 
 class AfterbuyClient:
@@ -35,11 +39,11 @@ class AfterbuyClient:
         xml_data = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Request>
   <AfterbuyGlobal>
-    <PartnerID>{self.partner_id}</PartnerID>
-    <PartnerToken>{self.partner_token}</PartnerToken>
-    <AccountToken>{self.account_token}</AccountToken>
-    <UserID>{self.user_id}</UserID>
-    <UserPassword>{self.user_password}</UserPassword>
+    <PartnerID>{escape(str(self.partner_id))}</PartnerID>
+    <PartnerToken>{escape(str(self.partner_token))}</PartnerToken>
+    <AccountToken>{escape(str(self.account_token))}</AccountToken>
+    <UserID>{escape(str(self.user_id))}</UserID>
+    <UserPassword>{escape(str(self.user_password))}</UserPassword>
     <CallName>GetSoldItems</CallName>
     <DetailLevel>1</DetailLevel>
     <ErrorLanguage>DE</ErrorLanguage>
@@ -48,7 +52,7 @@ class AfterbuyClient:
     <Filter>
       <FilterName>OrderID</FilterName>
       <FilterValues>
-        <FilterValue>{order_id}</FilterValue>
+        <FilterValue>{escape(str(order_id))}</FilterValue>
       </FilterValues>
     </Filter>
   </DataFilter>
@@ -61,16 +65,16 @@ class AfterbuyClient:
             )
 
             if response.status_code != 200:
-                print(f"AfterBuy API returned status code {response.status_code}")
+                logger.error(f"AfterBuy API returned status code {response.status_code}")
                 return None
 
             if not response.text:
-                print("AfterBuy API returned empty response")
+                logger.error("AfterBuy API returned empty response")
                 return None
 
             return self._parse_order_response(response.text)
         except requests.exceptions.RequestException as e:
-            print(f"Error calling AfterBuy API: {e}")
+            logger.error(f"Error calling AfterBuy API: {e}")
             return None
 
     def get_order_by_invoice_number(self, invoice_number: str) -> Optional[Dict]:
@@ -86,11 +90,11 @@ class AfterbuyClient:
         xml_data = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Request>
   <AfterbuyGlobal>
-    <PartnerID>{self.partner_id}</PartnerID>
-    <PartnerToken>{self.partner_token}</PartnerToken>
-    <AccountToken>{self.account_token}</AccountToken>
-    <UserID>{self.user_id}</UserID>
-    <UserPassword>{self.user_password}</UserPassword>
+    <PartnerID>{escape(str(self.partner_id))}</PartnerID>
+    <PartnerToken>{escape(str(self.partner_token))}</PartnerToken>
+    <AccountToken>{escape(str(self.account_token))}</AccountToken>
+    <UserID>{escape(str(self.user_id))}</UserID>
+    <UserPassword>{escape(str(self.user_password))}</UserPassword>
     <CallName>GetSoldItems</CallName>
     <DetailLevel>1</DetailLevel>
     <ErrorLanguage>DE</ErrorLanguage>
@@ -99,7 +103,7 @@ class AfterbuyClient:
     <Filter>
       <FilterName>InvoiceNumber</FilterName>
       <FilterValues>
-        <FilterValue>{invoice_number}</FilterValue>
+        <FilterValue>{escape(str(invoice_number))}</FilterValue>
       </FilterValues>
     </Filter>
   </DataFilter>
@@ -112,31 +116,31 @@ class AfterbuyClient:
             )
 
             if response.status_code != 200:
-                print(f"AfterBuy API returned status code {response.status_code}")
+                logger.error(f"AfterBuy API returned status code {response.status_code}")
                 return None
 
             if not response.text:
-                print("AfterBuy API returned empty response")
+                logger.error("AfterBuy API returned empty response")
                 return None
 
             return self._parse_order_response(response.text)
         except requests.exceptions.RequestException as e:
-            print(f"Error calling AfterBuy API: {e}")
+            logger.error(f"Error calling AfterBuy API: {e}")
             return None
 
     def _parse_order_response(self, xml_content: str) -> Optional[Dict]:
         """Parse XML response from AfterBuy API"""
         if not xml_content or not xml_content.strip():
-            print("Empty XML content provided to _parse_order_response")
+            logger.warning("Empty XML content provided to _parse_order_response")
             return None
 
         try:
             root = ET.fromstring(xml_content)
         except ET.ParseError as e:
-            print(f"Error parsing XML: {e}")
+            logger.error(f"Error parsing XML: {e}")
             return None
         except Exception as e:
-            print(f"Unexpected error parsing XML: {e}")
+            logger.error(f"Unexpected error parsing XML: {e}")
             return None
 
         # Check if call was successful
@@ -155,7 +159,7 @@ class AfterbuyClient:
 
         order = orders.find("Order")
         if order is None:
-            print("Order element not found in XML response")
+            logger.warning("Order element not found in XML response")
             return None
 
         # Parse basic order info
@@ -295,24 +299,3 @@ class AfterbuyClient:
         if child is not None and child.text:
             return child.text.strip()
         return None
-
-
-def create_client_from_config(config):
-    """Create AfterbuyClient from config"""
-    # These should be added to config.py or .env
-    import os
-    from dotenv import load_dotenv
-
-    load_dotenv()
-
-    return AfterbuyClient(
-        partner_id=os.getenv("AFTERBUY_PARTNER_ID", "113464"),
-        partner_token=os.getenv(
-            "AFTERBUY_PARTNER_TOKEN", "6722d455-4d02-4da3-97ef-f5dfcf73656d"
-        ),
-        account_token=os.getenv(
-            "AFTERBUY_ACCOUNT_TOKEN", "53217733-1987-4cf8-a065-2c2591e4765c"
-        ),
-        user_id=os.getenv("AFTERBUY_USER_ID", "PhoneBootLisaJV"),
-        user_password=os.getenv("AFTERBUY_USER_PASSWORD", "LisaKaprisJV2025!"),
-    )
