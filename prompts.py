@@ -33,6 +33,11 @@ PROMPTS = {
             "und drücken Sie die Rautetaste."
         ),
         "plz_retry": "Die Postleitzahl stimmt leider nicht überein.",
+        "status_shipped": "Ihr Auftrag {number} wurde am {date} versendet.",
+        "status_planned": (
+            "Ihr Auftrag {number} ist für die Lieferung in Kalenderwoche {weeks} eingeplant, "
+            "also zwischen dem {start} und dem {end}."
+        ),
         "status_production": (
             "Ihr Auftrag {number} ist in Produktion. "
             "Die Lieferung erwarten wir voraussichtlich zwischen dem {start} und dem {end}."
@@ -110,6 +115,11 @@ PROMPTS = {
             "then press the hash key."
         ),
         "plz_retry": "Sorry, the postcode doesn't match.",
+        "status_shipped": "Your order {number} was shipped on {date}.",
+        "status_planned": (
+            "Your order {number} is scheduled for delivery in calendar week {weeks}, "
+            "between {start} and {end}."
+        ),
         "status_production": (
             "Your order {number} is in production. "
             "We expect delivery between {start} and {end}."

@@ -244,24 +244,32 @@ def render_agent(response, call, reason=AGENT_REASON_CHOICE):
         dial.number(number)
 
 
+def _weeks_text(weeks, language):
+    first, last = weeks
+    if first == last:
+        return str(first)
+    return f"{first} bis {last}" if language == "de" else f"{first} to {last}"
+
+
 def speak_status(response, call, number, order_data, verified):
-    """Status sentence(s) for a found order, then the follow-up menu"""
+    """Status sentence(s) for a found order, then the follow-up menu.
+
+    Delivery comes from Afterbuy when staff recorded it (shipped date, "KW a - b"
+    in the memo); otherwise Lisa estimates it from the order date.
+    """
     spoken_number = status.number_for_speech(number)
     language = _language(call)
-    order_date = status.parse_order_date(order_data.get("order_date"))
+    info = status.delivery_info(order_data)
 
-    if order_date is None:
+    if info is None:
         text = _say(response, call, "status_unverified", number=spoken_number)
         _event(call, EVENT_STATUS, user_input="no_order_date", bot_response=text)
         render_next_menu(response, call, order=number, verified=int(verified))
         return
 
-    window = status.delivery_window(order_date)
-    stage = status.delivery_stage(window)
-
-    if stage == status.STAGE_OVERDUE:
+    if info["stage"] == status.STAGE_OVERDUE:
         text = _say(response, call, "status_overdue")
-        _event(call, EVENT_OVERDUE, user_input=number, bot_response=text)
+        _event(call, EVENT_OVERDUE, user_input=f"{number} {info['source']}", bot_response=text)
         update_call_status(call.id, CallStatus.PROBLEM)
         render_agent(response, call, AGENT_REASON_OVERDUE)
         return
@@ -269,9 +277,17 @@ def speak_status(response, call, number, order_data, verified):
     if not verified:
         text = _say(response, call, "status_unverified", number=spoken_number)
     else:
-        start, end = (status.date_for_speech(day, language) for day in window)
-        key = "status_production" if stage == status.STAGE_PRODUCTION else "status_delivery_soon"
-        text = _say(response, call, key, number=spoken_number, start=start, end=end)
+        if info["source"] == status.SOURCE_SHIPPED:
+            text = _say(response, call, "status_shipped", number=spoken_number,
+                        date=status.date_for_speech(info["shipped_on"], language))
+        else:
+            start, end = (status.date_for_speech(day, language) for day in info["window"])
+            if info["source"] == status.SOURCE_PLANNED:
+                text = _say(response, call, "status_planned", number=spoken_number,
+                            weeks=_weeks_text(info["weeks"], language), start=start, end=end)
+            else:
+                key = "status_production" if info["stage"] == status.STAGE_PRODUCTION else "status_delivery_soon"
+                text = _say(response, call, key, number=spoken_number, start=start, end=end)
         amount = status.open_amount(order_data)
         if amount > 0:
             text += " " + _say(
@@ -287,10 +303,11 @@ def _save_order(call, number, order_data, verification=None):
     order = Order(call_id=call.id, order_number=number, verification=verification)
     if order_data:
         order.lookup_result = LOOKUP_FOUND
-        order_date = status.parse_order_date(order_data.get("order_date"))
-        if order_date:
-            start, end = status.delivery_window(order_date)
-            order.promised_delivery_date = start + (end - start) / 2
+        info = status.delivery_info(order_data)
+        if info and info["source"] != status.SOURCE_SHIPPED:
+            # End of the promised window, or the middle of Lisa's own estimate
+            start, end = info["window"]
+            order.promised_delivery_date = end if info["source"] == status.SOURCE_PLANNED else start + (end - start) / 2
     else:
         order.lookup_result = LOOKUP_NOT_FOUND
     db.session.add(order)
