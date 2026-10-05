@@ -142,6 +142,18 @@ try {
     if (queued) { sessionStorage.removeItem('console-toast'); consoleToast(queued); }
 } catch (e) {}
 
+// Back links: go back in history when we came from this console (keeps filters)
+document.querySelectorAll('[data-back]').forEach(function (link) {
+    link.addEventListener('click', function (event) {
+        let fromConsole = false;
+        try { fromConsole = new URL(document.referrer).origin === location.origin; } catch (e) {}
+        if (fromConsole && history.length > 1 && !document.referrer.includes('/login')) {
+            event.preventDefault();
+            history.back();
+        }
+    });
+});
+
 // Mobile navigation drawer
 (function () {
     const sidebar = document.getElementById('sidebar');

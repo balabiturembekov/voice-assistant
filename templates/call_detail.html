@@ -8,7 +8,8 @@
 
 {% call ui.page_header(call.phone_number or "Unknown caller",
                        (call.created_at | local_time) ~ " · " ~ ("German" if call.language == "de" else "English"),
-                       [("Calls", url_for("calls")), ("Call #" ~ call.id, None)]) %}
+                       [("Calls", url_for("calls")), ("Call #" ~ call.id, None)],
+                       back=("calls", url_for("calls"))) %}
     <span id="status-badge">{{ ui.call_status(call.status) }}</span>
     <button type="button" class="btn-c btn-secondary-c" data-bs-toggle="modal" data-bs-target="#statusModal">
         <i class="fas fa-pen" aria-hidden="true"></i>Change status

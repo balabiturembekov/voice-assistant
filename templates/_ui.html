@@ -14,9 +14,15 @@
 
 {% macro overdue() -%}<span class="badge-c tone-serious"><i class="fas fa-triangle-exclamation" aria-hidden="true"></i>Overdue</span>{%- endmacro %}
 
-{% macro page_header(title, subtitle=None, crumbs=None) -%}
+{% macro page_header(title, subtitle=None, crumbs=None, back=None) -%}
 <div class="page-header">
     <div>
+        {% if back %}
+        {# Returns to the previous page (keeps list filters); falls back to `back` #}
+        <a class="back-link" href="{{ back[1] }}" data-back>
+            <i class="fas fa-arrow-left" aria-hidden="true"></i>Back to {{ back[0] }}
+        </a>
+        {% endif %}
         {% if crumbs %}
         <nav aria-label="Breadcrumb">
             <ol class="crumbs">

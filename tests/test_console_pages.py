@@ -168,3 +168,15 @@ def test_users_page_for_admin(client, app):
     login(client, "admin")
     html = client.get("/users").get_data(as_text=True)
     assert "Add user" in html and "(you)" in html
+
+
+def test_detail_pages_have_back_link(client, app):
+    call = make_calls(1)[0]
+    order = Order(call_id=call.id, order_number="1", lookup_result="not_found")
+    db.session.add(order)
+    db.session.commit()
+    login(client, "operator")
+    call_html = client.get(f"/calls/{call.id}").get_data(as_text=True)
+    order_html = client.get(f"/orders/{order.id}").get_data(as_text=True)
+    assert 'href="/calls" data-back' in call_html and "Back to calls" in call_html
+    assert 'href="/orders" data-back' in order_html and "Back to orders" in order_html
