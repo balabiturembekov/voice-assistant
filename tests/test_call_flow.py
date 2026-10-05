@@ -74,7 +74,7 @@ def events(step):
 def test_greeting_then_menu(client, app):
     root = hook(client, "/webhook/voice")
     assert "Lisa" in text(root)
-    assert "Für den Status Ihrer Bestellung drücken Sie die 1" in text(root)
+    assert "Für den Status Ihrer Bestellung drücken Sie die Eins" in text(root)
     assert gather_action(root) == "/webhook/menu?attempt=1"
     # silence falls through to the same handler
     assert root.find("Redirect").text == "/webhook/menu?attempt=1"
@@ -105,7 +105,10 @@ def test_menu_invalid_choice(client, call):
 def test_menu_9_switches_to_english(client, call):
     root = hook(client, "/webhook/menu?attempt=1", "9")
     assert "For the status of your order" in text(root)
-    assert {s.get("language") for s in root.iter("Say")} == {"en-US"}
+    says = list(root.iter("Say"))
+    assert {s.get("language") for s in says[:-1]} == {"en-US"}
+    assert says[-1].text == "Für Deutsch drücken Sie die Neun."  # offer back, in German
+    assert says[-1].get("language") == "de-DE"
     db.session.refresh(call)
     assert call.language == "en"
 
@@ -155,7 +158,7 @@ def test_found_and_verified_by_phone(client, call, afterbuy):
     afterbuy["24896241"] = order()
     root = hook(client, "/webhook/order-number?attempt=1", "24896241#")
     spoken = text(root)
-    assert "Ihr Auftrag 2 4 8 9 6 2 4 1 ist in Produktion" in spoken
+    assert "Ihr Auftrag zwei vier acht neun sechs zwei vier eins ist in Produktion" in spoken
     assert "voraussichtlich zwischen dem" in spoken
     assert "Offen ist noch ein Betrag von 1180 Euro und 50 Cent" in spoken
     assert "Max" not in spoken  # no names on the phone
@@ -220,12 +223,12 @@ def test_overdue_goes_to_team(client, call, afterbuy, open_hours):
 def test_not_found_retry_then_options(client, call, afterbuy):
     root = hook(client, "/webhook/order-number?attempt=1", "123")
     assert "keinen Auftrag gefunden" in text(root)
-    assert "1 2 3" in text(root)
+    assert "Nummer eins zwei drei habe" in text(root)
     assert gather_action(root) == "/webhook/order-number?attempt=2"
 
     root = hook(client, "/webhook/order-number?attempt=2", "123")
     assert "wieder keinen Auftrag" in text(root)
-    assert "Für einen neuen Versuch drücken Sie die 1" in text(root)
+    assert "Für einen neuen Versuch drücken Sie die Eins" in text(root)
     assert "kind=not_found" in gather_action(root)
     assert Order.query.filter_by(lookup_result="not_found").count() == 2
 
@@ -334,7 +337,9 @@ def test_speech_formatting():
     assert status.euro_for_speech(1680.5, "de") == "1680 Euro und 50 Cent"
     assert status.euro_for_speech(500.0, "de") == "500 Euro"
     assert status.euro_for_speech(19.99, "en") == "19 euros and 99 cents"
-    assert status.number_for_speech("248") == "2 4 8"
+    assert status.number_for_speech("248") == "zwei vier acht"
+    assert status.number_for_speech("1090", "de") == "eins null neun null"
+    assert status.number_for_speech("248", "en") == "2 4 8"
 
 
 @pytest.mark.parametrize(

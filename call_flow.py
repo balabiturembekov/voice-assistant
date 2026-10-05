@@ -31,7 +31,8 @@ from models import (
     db,
 )
 from order_lookup import get_order_from_afterbuy
-from prompts import prompt
+from prompts import LANGUAGE_SWITCH, prompt
+from voice import LANGUAGE_CODES
 from services import detect_language
 from voice_messages import uses_external_transcription
 
@@ -180,6 +181,9 @@ def _hours_text(call):
 def render_menu(response, call, attempt=1):
     gather = _gather(response, "menu_input", num_digits=1, attempt=attempt)
     _say(gather, call, "menu")
+    # Spoken in the other language with that language's voice (see voice.apply_voice)
+    target, text = LANGUAGE_SWITCH[_language(call) if _language(call) in LANGUAGE_SWITCH else "de"]
+    gather.say(text, language=LANGUAGE_CODES[target])
 
 
 def render_order_number(response, call, attempt=1):
@@ -257,7 +261,7 @@ def speak_status(response, call, number, order_data, verified):
     Delivery comes from Afterbuy when staff recorded it (shipped date, "KW a - b"
     in the memo); otherwise Lisa estimates it from the order date.
     """
-    spoken_number = status.number_for_speech(number)
+    spoken_number = status.number_for_speech(number, _language(call))
     language = _language(call)
     info = status.delivery_info(order_data)
 
@@ -407,7 +411,7 @@ def order_number_input():
 
     if not order_data:
         _save_order(call, number, None)
-        spoken = status.number_for_speech(number)
+        spoken = status.number_for_speech(number, _language(call))
         if attempt < MAX_ATTEMPTS:
             text = _say(response, call, "not_found_retry", number=spoken)
             _event(call, EVENT_ORDER_NOT_FOUND, user_input=number, bot_response=text)
