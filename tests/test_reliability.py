@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 import app as app_module
+import order_lookup
 from models import Call, Conversation, Order, VoiceMessage, db, utcnow
 from retention import ANONYMIZED_PHONE, anonymize_calls_older_than
 from tests.conftest import get_csrf_token, login
@@ -44,19 +45,19 @@ def test_health_reports_redis_down(client, fake_redis, monkeypatch):
 def test_afterbuy_hits_are_cached(app, monkeypatch):
     calls = []
     monkeypatch.setattr(
-        app_module, "_fetch_order_from_afterbuy",
+        order_lookup, "_fetch_order_from_afterbuy",
         lambda n: calls.append(n) or {"order_id": n, "invoice_number": n},
     )
-    assert app_module.get_order_from_afterbuy("123")["order_id"] == "123"
-    assert app_module.get_order_from_afterbuy("123")["order_id"] == "123"
+    assert order_lookup.get_order_from_afterbuy("123")["order_id"] == "123"
+    assert order_lookup.get_order_from_afterbuy("123")["order_id"] == "123"
     assert calls == ["123"]
 
 
 def test_afterbuy_misses_are_not_cached(app, monkeypatch):
     calls = []
-    monkeypatch.setattr(app_module, "_fetch_order_from_afterbuy", lambda n: calls.append(n))
-    app_module.get_order_from_afterbuy("404")
-    app_module.get_order_from_afterbuy("404")
+    monkeypatch.setattr(order_lookup, "_fetch_order_from_afterbuy", lambda n: calls.append(n))
+    order_lookup.get_order_from_afterbuy("404")
+    order_lookup.get_order_from_afterbuy("404")
     assert len(calls) == 2
 
 
@@ -66,8 +67,8 @@ def test_afterbuy_works_when_redis_is_down(app, fake_redis, monkeypatch):
 
     monkeypatch.setattr(fake_redis, "get", broken)
     monkeypatch.setattr(fake_redis, "setex", broken)
-    monkeypatch.setattr(app_module, "_fetch_order_from_afterbuy", lambda n: {"order_id": n})
-    assert app_module.get_order_from_afterbuy("1") == {"order_id": "1"}
+    monkeypatch.setattr(order_lookup, "_fetch_order_from_afterbuy", lambda n: {"order_id": n})
+    assert order_lookup.get_order_from_afterbuy("1") == {"order_id": "1"}
 
 
 def test_login_throttling(client):
