@@ -398,7 +398,8 @@ body.console .form-label { font-size: 13px; font-weight: 500; color: var(--text-
 .tl-input { display: inline-block; margin-top: 4px; padding: 2px 8px; border-radius: 6px; background: var(--surface-2); font-size: 13px; }
 
 /* Audio player */
-.audio { width: 100%; max-width: 360px; height: 36px; margin-top: 8px; }
+.audio-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.audio { width: 100%; max-width: 360px; height: 36px; }
 
 /* Bootstrap modal in console tokens */
 body.console .modal-content { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius); }

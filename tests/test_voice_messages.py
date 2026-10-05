@@ -88,7 +88,8 @@ def test_full_flow_sends_exactly_one_email(client, call, sent_emails):
     assert len(sent_emails) == 1
     email = sent_emails[0]
     assert email["transcription_text"] == "Hallo, wo ist meine Lieferung?"
-    assert email["recording_url"] == REC_URL
+    # Twilio recordings need auth, so the email links to the console player
+    assert email["recording_url"].endswith(f"/voice-messages/{message().id}/audio")
     assert email["order_number"] == "24896241"
     assert email["duration_seconds"] == 12
     msg = message()

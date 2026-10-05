@@ -82,9 +82,18 @@
                     <p class="tl-text" style="color: var(--serious);">{{ vm.email_last_error }}</p>
                     {% endif %}
                     {% if vm.recording_url %}
-                    <audio class="audio" controls preload="none" src="{{ vm.recording_url }}.mp3">
-                        <a href="{{ vm.recording_url }}" target="_blank" rel="noopener noreferrer">Listen to the recording</a>
-                    </audio>
+                    {% set audio_url = url_for('voice_message_audio', message_id=vm.id) %}
+                    <div class="audio-row">
+                        <audio class="audio" controls preload="none" src="{{ audio_url }}"
+                               aria-label="Voice message from {{ call.phone_number }}"
+                               onerror="this.closest('.audio-row').querySelector('.audio-error').hidden = false"></audio>
+                        <a class="btn-c btn-ghost btn-sm-c" href="{{ audio_url }}" download>
+                            <i class="fas fa-download" aria-hidden="true"></i>Download
+                        </a>
+                    </div>
+                    <p class="audio-error tl-text" hidden style="color: var(--serious);">
+                        The recording couldn't be loaded from Twilio. Try again in a minute.
+                    </p>
                     {% endif %}
                 </div>
                 {% endfor %}
