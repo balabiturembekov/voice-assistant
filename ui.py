@@ -185,6 +185,30 @@ def event_detail(step, value):
     return value, True
 
 
+# Audit action -> (tone, icon, sentence with {actor}/{target}/{detail})
+AUDIT_STYLE = {
+    "sign_in": ("good", "fa-right-to-bracket", "{target} signed in"),
+    "sign_in_failed": ("warning", "fa-triangle-exclamation", "Failed sign-in as “{detail}”"),
+    "sign_in_throttled": ("serious", "fa-ban", "Sign-in blocked after too many attempts (“{detail}”)"),
+    "user_created": ("info", "fa-user-plus", "{actor} added {target} as {detail}"),
+    "user_updated": ("info", "fa-user-pen", "{actor} changed {target}: {detail}"),
+    "user_disabled": ("serious", "fa-user-slash", "{actor} disabled {target}"),
+    "user_enabled": ("good", "fa-user-check", "{actor} enabled {target}"),
+    "password_reset": ("warning", "fa-key", "{actor} set a temporary password for {target}"),
+    "password_changed": ("good", "fa-lock", "{target} changed their password"),
+}
+
+
+def audit_text(event):
+    tone, icon, template = AUDIT_STYLE.get(event.action, ("neutral", "fa-circle", event.action))
+    text = template.format(
+        actor=event.actor.username if event.actor else "System",
+        target=event.target.username if event.target else "unknown user",
+        detail=event.detail or "",
+    )
+    return {"tone": tone, "icon": icon, "text": text}
+
+
 def page_url(page):
     """Current URL with another page number, keeping the filters"""
     args = request.args.to_dict()
@@ -202,6 +226,7 @@ def register(app):
         money=money,
         step_style=step_style,
         event_detail=event_detail,
+        audit_text=audit_text,
         page_url=page_url,
         CallStatus=CallStatus,
     )

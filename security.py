@@ -4,6 +4,7 @@ masking of personal data in logs.
 """
 import logging
 import re
+import secrets
 from functools import wraps
 
 from flask import abort, current_app, redirect, request, url_for
@@ -51,7 +52,14 @@ def install_log_masking():
 
 @login_manager.user_loader
 def load_user(user_id):
-    return db.session.get(User, int(user_id))
+    """Session id is "<id>:<session_token>"; a rotated token or a disabled user signs out"""
+    user_part, _, token = user_id.partition(":")
+    if not user_part.isdigit() or not token:
+        return None
+    user = db.session.get(User, int(user_part))
+    if user is None or not user.is_active or not secrets.compare_digest(user.session_token, token):
+        return None
+    return user
 
 
 def is_valid_twilio_request():

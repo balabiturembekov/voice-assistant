@@ -3,110 +3,257 @@
 
 {% block title %}Users · Lisa Console{% endblock %}
 
+{% macro role_picker(name_prefix, selected) -%}
+<div class="role-options" role="radiogroup" aria-label="Role">
+    {% for role in roles %}
+    <label class="role-option">
+        <input type="radio" name="role" value="{{ role.name }}" id="{{ name_prefix }}-{{ role.name }}"
+               {% if role.name == selected %}checked{% endif %}>
+        <div><strong>{{ role.value | capitalize }}</strong><span>{{ role_descriptions[role] }}</span></div>
+    </label>
+    {% endfor %}
+</div>
+{%- endmacro %}
+
+{% macro password_choice(prefix) -%}
+<fieldset>
+    <legend class="form-label">Password</legend>
+    <div class="segmented" role="radiogroup">
+        <label><input type="radio" name="password_mode" value="generate" checked
+                      onchange="togglePasswordField('{{ prefix }}', false)">Generate</label>
+        <label><input type="radio" name="password_mode" value="manual"
+                      onchange="togglePasswordField('{{ prefix }}', true)">Set manually</label>
+    </div>
+    <div id="{{ prefix }}-manual" hidden class="mt-2">
+        <input type="password" class="form-control" name="password" minlength="{{ min_length }}"
+               autocomplete="new-password" aria-label="Temporary password">
+    </div>
+    <p class="muted mt-2 mb-0" style="font-size: 13px;">
+        Temporary: the user picks their own password at first sign-in. A generated password is shown to you once.
+    </p>
+</fieldset>
+{%- endmacro %}
+
 {% block content %}
-{{ ui.page_header("Users", "Who can sign in to the console. Admins can also manage users.") }}
+{% call ui.page_header("Users", "Who can sign in to the console, what they can do, and what happened recently.") %}
+    <button type="button" class="btn-c btn-primary-c" data-bs-toggle="modal" data-bs-target="#addUserModal">
+        <i class="fas fa-user-plus" aria-hidden="true"></i>Add user
+    </button>
+{% endcall %}
 
-<div class="grid-detail">
-    <section class="card-c" aria-labelledby="new-user-title">
-        <div class="card-c-header"><h2 id="new-user-title">Add user</h2></div>
-        <form class="card-c-body stack" method="post" action="{{ url_for('auth.create_user') }}">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <div>
-                <label class="form-label" for="new-username">Username</label>
-                <input type="text" class="form-control" id="new-username" name="username" required
-                       autocomplete="off" autocapitalize="none" spellcheck="false">
-            </div>
-            <div>
-                <label class="form-label" for="new-password">Password</label>
-                <input type="password" class="form-control" id="new-password" name="password" required
-                       minlength="12" autocomplete="new-password" aria-describedby="new-password-hint">
-                <div class="muted mt-1" id="new-password-hint" style="font-size: 13px;">At least 12 characters.</div>
-            </div>
-            <div>
-                <label class="form-label" for="new-role">Role</label>
-                <select class="form-select" id="new-role" name="role">
-                    {% for role in roles %}
-                    <option value="{{ role.name }}" {% if role.name == 'OPERATOR' %}selected{% endif %}>{{ role.value | capitalize }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <button type="submit" class="btn-c btn-primary-c"><i class="fas fa-user-plus" aria-hidden="true"></i>Add user</button>
-        </form>
-    </section>
-
-    <section class="card-c" aria-labelledby="users-title">
-        <div class="card-c-header">
-            <h2 id="users-title">Team</h2>
-            <span class="sub">{{ users | length }} user{{ 's' if users | length != 1 }}</span>
+{% if revealed %}
+<section class="card-c" style="margin-bottom: 16px;" aria-labelledby="reveal-title">
+    <div class="card-c-header">
+        <h2 id="reveal-title"><i class="fas fa-key" aria-hidden="true"></i> Temporary password for {{ revealed.user.display_name }}</h2>
+        <span class="sub">Shown only once</span>
+    </div>
+    <div class="card-c-body stack">
+        <div class="secret">
+            <span id="revealed-password">{{ revealed.password }}</span>
+            <button type="button" class="btn-c btn-secondary-c btn-sm-c" onclick="copyPassword()">
+                <i class="fas fa-copy" aria-hidden="true"></i>Copy
+            </button>
         </div>
-        <div class="table-wrap">
-            <table class="table-c">
-                <thead>
-                    <tr>
-                        <th scope="col">User</th>
-                        <th scope="col">Status</th>
-                        <th scope="col">Last sign-in</th>
-                        <th scope="col"><span class="sr-only">Actions</span></th>
-                    </tr>
-                </thead>
-                <tbody>
-                {% for user in users %}
+        <p class="muted mb-0" style="font-size: 14px;">
+            Share it with <strong>{{ revealed.user.username }}</strong> in person or by phone, not by email.
+            It stops being visible when you leave this page, and they must replace it at first sign-in.
+        </p>
+    </div>
+</section>
+{% endif %}
+
+<section class="card-c" style="margin-bottom: 16px;" aria-labelledby="team-title">
+    <div class="card-c-header">
+        <h2 id="team-title">Team</h2>
+        <span class="sub">{{ users | selectattr('is_active_user') | list | length }} active · {{ users | length }} total</span>
+    </div>
+    <div class="table-wrap">
+        <table class="table-c">
+            <thead>
                 <tr>
-                    <td>
-                        <div class="cell-phone">
-                            <span class="avatar" aria-hidden="true">{{ user.username[:2] }}</span>
-                            <div>
-                                <strong>{{ user.username }}</strong>{% if user.id == current_user.id %} <span class="muted">(you)</span>{% endif %}
-                                <div class="muted" style="font-size: 13px;">{{ user.role.value | capitalize }}</div>
+                    <th scope="col">User</th>
+                    <th scope="col">Role</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Last sign-in</th>
+                    <th scope="col">Added</th>
+                    <th scope="col"><span class="sr-only">Actions</span></th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for user in users %}
+            {% set is_me = user.id == current_user.id %}
+            <tr>
+                <td>
+                    <div class="cell-phone">
+                        <span class="avatar" aria-hidden="true">{{ user.initials }}</span>
+                        <div>
+                            <strong>{{ user.display_name }}</strong>{% if is_me %} <span class="muted">(you)</span>{% endif %}
+                            <div class="muted" style="font-size: 13px;">
+                                @{{ user.username }}{% if user.email %} · {{ user.email }}{% endif %}
                             </div>
                         </div>
-                    </td>
-                    <td>
-                        {% if user.is_active_user %}
-                        {{ ui.badge({'tone': 'good', 'icon': 'fa-circle-check', 'label': 'Active'}) }}
-                        {% else %}
-                        {{ ui.badge({'tone': 'neutral', 'icon': 'fa-ban', 'label': 'Disabled'}) }}
-                        {% endif %}
-                    </td>
-                    <td class="muted tabular">{{ user.last_login_at | local_time if user.last_login_at else 'Never' }}</td>
-                    <td class="text-end" style="white-space: nowrap;">
-                        <button type="button" class="btn-c btn-ghost btn-sm-c"
-                                onclick='openPassword({{ user.id }}, {{ user.username | tojson }})'>
-                            <i class="fas fa-key" aria-hidden="true"></i>Password
+                    </div>
+                </td>
+                <td>
+                    {% if user.is_admin %}{{ ui.badge({'tone': 'info', 'icon': 'fa-user-shield', 'label': 'Admin'}) }}
+                    {% else %}{{ ui.badge({'tone': 'neutral', 'icon': 'fa-headset', 'label': 'Operator'}) }}{% endif %}
+                </td>
+                <td>
+                    {% if not user.is_active_user %}
+                    {{ ui.badge({'tone': 'neutral', 'icon': 'fa-ban', 'label': 'Disabled'}) }}
+                    {% elif user.must_change_password %}
+                    {{ ui.badge({'tone': 'warning', 'icon': 'fa-key', 'label': 'Password change pending'}) }}
+                    {% else %}
+                    {{ ui.badge({'tone': 'good', 'icon': 'fa-circle-check', 'label': 'Active'}) }}
+                    {% endif %}
+                </td>
+                <td class="muted tabular">{{ user.last_login_at | local_time if user.last_login_at else 'Never' }}</td>
+                <td class="muted">
+                    <span class="tabular">{{ user.created_at | local_time('%d.%m.%Y') }}</span>
+                    {% if user.created_by %}<div style="font-size: 13px;">by {{ user.created_by.username }}</div>{% endif %}
+                </td>
+                <td class="text-end">
+                    <div class="dropdown">
+                        <button type="button" class="btn-c btn-ghost btn-sm-c" data-bs-toggle="dropdown" aria-expanded="false"
+                                aria-label="Actions for {{ user.username }}">
+                            <i class="fas fa-ellipsis" aria-hidden="true"></i>
                         </button>
-                        {% if user.id != current_user.id %}
-                        <form method="post" action="{{ url_for('auth.toggle_user', user_id=user.id) }}" class="d-inline">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                            <button type="submit" class="btn-c btn-ghost btn-sm-c"
-                                    {% if user.is_active_user %}onclick="return confirm('Disable {{ user.username }}? They will no longer be able to sign in.')"{% endif %}>
-                                <i class="fas {{ 'fa-user-slash' if user.is_active_user else 'fa-user-check' }}" aria-hidden="true"></i>
-                                {{ 'Disable' if user.is_active_user else 'Enable' }}
-                            </button>
-                        </form>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </section>
-</div>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><button type="button" class="dropdown-item"
+                                        onclick='openEditUser({{ user.id }}, {{ user.username | tojson }}, {{ (user.full_name or "") | tojson }}, {{ (user.email or "") | tojson }}, {{ user.role.name | tojson }})'>
+                                <i class="fas fa-user-pen me-2" aria-hidden="true"></i>Edit details &amp; role</button></li>
+                            <li><button type="button" class="dropdown-item"
+                                        onclick='openResetPassword({{ user.id }}, {{ user.username | tojson }})'>
+                                <i class="fas fa-key me-2" aria-hidden="true"></i>Set temporary password</button></li>
+                            {% if not is_me %}
+                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                                <form method="post" action="{{ url_for('auth.toggle_user', user_id=user.id) }}">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    {% if user.is_active_user %}
+                                    <button type="submit" class="dropdown-item text-danger"
+                                            onclick="return confirm('Disable {{ user.username }}? They are signed out immediately and can no longer sign in.')">
+                                        <i class="fas fa-user-slash me-2" aria-hidden="true"></i>Disable</button>
+                                    {% else %}
+                                    <button type="submit" class="dropdown-item">
+                                        <i class="fas fa-user-check me-2" aria-hidden="true"></i>Enable</button>
+                                    {% endif %}
+                                </form>
+                            </li>
+                            {% endif %}
+                        </ul>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
 
-<!-- Reset password -->
-<div class="modal fade" id="passwordModal" tabindex="-1" aria-labelledby="passwordModalTitle" aria-hidden="true">
+<section class="card-c" aria-labelledby="activity-title">
+    <div class="card-c-header">
+        <h2 id="activity-title">Recent activity</h2>
+        <span class="sub">Sign-ins and user changes</span>
+    </div>
+    {% if activity %}
+    <ul class="activity">
+        {% for event in activity %}
+        {% set a = audit_text(event) %}
+        <li>
+            <span class="a-icon tone-{{ a.tone }}" aria-hidden="true"><i class="fas {{ a.icon }}"></i></span>
+            <span>{{ a.text }}{% if event.ip_address %} <span class="muted" style="font-size: 12px;">· {{ event.ip_address }}</span>{% endif %}</span>
+            <time datetime="{{ event.created_at.isoformat() }}Z">{{ event.created_at | local_time }}</time>
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    {{ ui.empty("fa-clock-rotate-left", "No activity recorded yet.") }}
+    {% endif %}
+</section>
+
+<!-- Add user -->
+<div class="modal fade" id="addUserModal" tabindex="-1" aria-labelledby="addUserTitle" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
-        <form class="modal-content" method="post" id="passwordForm">
+        <form class="modal-content" method="post" action="{{ url_for('auth.create_user') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="modal-header">
-                <h2 class="modal-title" id="passwordModalTitle">New password for <span id="passwordUser"></span></h2>
+                <h2 class="modal-title" id="addUserTitle">Add user</h2>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-            <div class="modal-body">
-                <label class="form-label" for="reset-password">New password</label>
-                <input type="password" class="form-control" id="reset-password" name="password" required
-                       minlength="12" autocomplete="new-password">
-                <div class="muted mt-1" style="font-size: 13px;">At least 12 characters. The user should change it after signing in.</div>
+            <div class="modal-body stack">
+                <div>
+                    <label class="form-label" for="add-full-name">Full name</label>
+                    <input type="text" class="form-control" id="add-full-name" name="full_name" autocomplete="off">
+                </div>
+                <div>
+                    <label class="form-label" for="add-username">Username</label>
+                    <input type="text" class="form-control" id="add-username" name="username" required
+                           pattern="[a-z0-9._\-]{3,40}" autocapitalize="none" spellcheck="false" autocomplete="off"
+                           aria-describedby="add-username-hint">
+                    <div class="muted mt-1" id="add-username-hint" style="font-size: 13px;">Lowercase letters, digits, dots or dashes. Used to sign in.</div>
+                </div>
+                <div>
+                    <label class="form-label" for="add-email">Email <span class="muted">(optional)</span></label>
+                    <input type="email" class="form-control" id="add-email" name="email" autocomplete="off">
+                </div>
+                <div>
+                    <span class="form-label d-block">Role</span>
+                    {{ role_picker("add-role", "OPERATOR") }}
+                </div>
+                {{ password_choice("add") }}
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-c btn-ghost" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn-c btn-primary-c">Add user</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Edit user -->
+<div class="modal fade" id="editUserModal" tabindex="-1" aria-labelledby="editUserTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <form class="modal-content" method="post" id="editUserForm">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="modal-header">
+                <h2 class="modal-title" id="editUserTitle">Edit <span id="editUserName"></span></h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body stack">
+                <div>
+                    <label class="form-label" for="edit-full-name">Full name</label>
+                    <input type="text" class="form-control" id="edit-full-name" name="full_name" autocomplete="off">
+                </div>
+                <div>
+                    <label class="form-label" for="edit-email">Email <span class="muted">(optional)</span></label>
+                    <input type="email" class="form-control" id="edit-email" name="email" autocomplete="off">
+                </div>
+                <div>
+                    <span class="form-label d-block">Role</span>
+                    {{ role_picker("edit-role", "") }}
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-c btn-ghost" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn-c btn-primary-c">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Temporary password -->
+<div class="modal fade" id="resetPasswordModal" tabindex="-1" aria-labelledby="resetTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <form class="modal-content" method="post" id="resetPasswordForm">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="modal-header">
+                <h2 class="modal-title" id="resetTitle">Temporary password for <span id="resetUserName"></span></h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body stack">
+                <p class="mb-0" style="font-size: 14px;">The user is signed out everywhere and must choose a new password at next sign-in.</p>
+                {{ password_choice("reset") }}
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn-c btn-ghost" data-bs-dismiss="modal">Cancel</button>
@@ -119,12 +266,41 @@
 
 {% block scripts %}
 <script>
-function openPassword(id, username) {
-    const form = document.getElementById('passwordForm');
-    form.action = '/users/' + id + '/password';
-    document.getElementById('passwordUser').textContent = username;
-    form.querySelector('#reset-password').value = '';
-    bootstrap.Modal.getOrCreateInstance(document.getElementById('passwordModal')).show();
+function togglePasswordField(prefix, manual) {
+    const wrap = document.getElementById(prefix + '-manual');
+    const input = wrap.querySelector('input');
+    wrap.hidden = !manual;
+    input.required = manual;
+    if (manual) input.focus(); else input.value = '';
+}
+
+function openEditUser(id, username, fullName, email, role) {
+    const form = document.getElementById('editUserForm');
+    form.action = '/users/' + id;
+    document.getElementById('editUserName').textContent = username;
+    document.getElementById('edit-full-name').value = fullName;
+    document.getElementById('edit-email').value = email;
+    form.querySelectorAll('input[name=role]').forEach(function (r) { r.checked = r.value === role; });
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('editUserModal')).show();
+}
+
+function openResetPassword(id, username) {
+    document.getElementById('resetPasswordForm').action = '/users/' + id + '/password';
+    document.getElementById('resetUserName').textContent = username;
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('resetPasswordModal')).show();
+}
+
+function copyPassword() {
+    const text = document.getElementById('revealed-password').textContent;
+    navigator.clipboard.writeText(text).then(
+        function () { consoleToast('Password copied'); },
+        function () { consoleToast('Copy failed, select the password manually', 'serious'); }
+    );
+}
+
+// The one-time token is spent: drop it from the address bar and history
+if (location.search.includes('reveal=')) {
+    history.replaceState(null, '', location.pathname);
 }
 </script>
 {% endblock %}

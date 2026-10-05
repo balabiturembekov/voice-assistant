@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+
+{% block title %}My account · Lisa Console{% endblock %}
+
+{% block content %}
+{{ ui.page_header("My account", "Your profile, password and recent sign-ins.") }}
+
+{% if current_user.must_change_password %}
+<div class="flash tone-warning" role="alert">
+    <i class="fas fa-key" aria-hidden="true"></i>
+    <span>You are using a temporary password. Choose your own password to continue using the console.</span>
+</div>
+{% endif %}
+
+<div class="grid-detail">
+    <section class="card-c" aria-labelledby="profile-title">
+        <div class="card-c-header"><h2 id="profile-title">Profile</h2></div>
+        <div class="card-c-body">
+            <div class="cell-phone" style="margin-bottom: 16px;">
+                <span class="avatar" aria-hidden="true" style="width: 44px; height: 44px; font-size: 15px;">{{ current_user.initials }}</span>
+                <div>
+                    <strong style="font-size: 16px;">{{ current_user.display_name }}</strong>
+                    <div class="muted" style="font-size: 13px;">@{{ current_user.username }}</div>
+                </div>
+            </div>
+            <dl class="dl">
+                {{ ui.field("Email", current_user.email) }}
+                <div class="dl-row">
+                    <dt>Role</dt>
+                    <dd>{{ current_user.role.value | capitalize }}<div class="muted mt-1" style="font-size: 13px;">{{ role_description }}</div></dd>
+                </div>
+                {{ ui.field("Password changed", current_user.password_changed_at | local_time if current_user.password_changed_at else "—") }}
+                {{ ui.field("Last sign-in", current_user.last_login_at | local_time if current_user.last_login_at else "—") }}
+            </dl>
+            <p class="muted mb-0 mt-3" style="font-size: 13px;">Name, email and role are managed by an admin.</p>
+        </div>
+    </section>
+
+    <div class="stack">
+        <section class="card-c" aria-labelledby="password-title">
+            <div class="card-c-header"><h2 id="password-title">Change password</h2></div>
+            <form class="card-c-body stack" method="post" action="{{ url_for('auth.change_password') }}" id="passwordForm">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div>
+                    <label class="form-label" for="current_password">Current password</label>
+                    <input type="password" class="form-control" id="current_password" name="current_password"
+                           autocomplete="current-password" required {% if current_user.must_change_password %}autofocus{% endif %}>
+                </div>
+                <div>
+                    <label class="form-label" for="new_password">New password</label>
+                    <input type="password" class="form-control" id="new_password" name="new_password"
+                           autocomplete="new-password" minlength="{{ min_length }}" required aria-describedby="new-password-hint">
+                    <div class="muted mt-1" id="new-password-hint" style="font-size: 13px;">
+                        At least {{ min_length }} characters. A short sentence is easy to remember and hard to guess.
+                    </div>
+                </div>
+                <div>
+                    <label class="form-label" for="confirm_password">Repeat new password</label>
+                    <input type="password" class="form-control" id="confirm_password" name="confirm_password"
+                           autocomplete="new-password" minlength="{{ min_length }}" required>
+                    <div class="muted mt-1" id="confirm-hint" style="font-size: 13px; color: var(--serious) !important;" hidden>The passwords don't match.</div>
+                </div>
+                <div>
+                    <button type="submit" class="btn-c btn-primary-c"><i class="fas fa-lock" aria-hidden="true"></i>Change password</button>
+                </div>
+                <p class="muted mb-0" style="font-size: 13px;">Changing your password signs you out on all other devices.</p>
+            </form>
+        </section>
+
+        <section class="card-c" aria-labelledby="recent-title">
+            <div class="card-c-header"><h2 id="recent-title">Recent sign-ins</h2></div>
+            {% if recent %}
+            <ul class="activity">
+                {% for event in recent %}
+                {% set a = audit_text(event) %}
+                <li>
+                    <span class="a-icon tone-{{ a.tone }}" aria-hidden="true"><i class="fas {{ a.icon }}"></i></span>
+                    <span>{{ a.text }}{% if event.ip_address %} <span class="muted" style="font-size: 12px;">· {{ event.ip_address }}</span>{% endif %}</span>
+                    <time datetime="{{ event.created_at.isoformat() }}Z">{{ event.created_at | local_time }}</time>
+                </li>
+                {% endfor %}
+            </ul>
+            <p class="muted" style="font-size: 13px; padding: 12px 20px 16px; margin: 0;">Don't recognise a sign-in? Change your password and tell an admin.</p>
+            {% else %}
+            {{ ui.empty("fa-clock-rotate-left", "No sign-ins recorded yet.") }}
+            {% endif %}
+        </section>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('passwordForm').addEventListener('submit', function (event) {
+    const match = document.getElementById('new_password').value === document.getElementById('confirm_password').value;
+    document.getElementById('confirm-hint').hidden = match;
+    if (!match) {
+        event.preventDefault();
+        document.getElementById('confirm_password').focus();
+    }
+});
+</script>
+{% endblock %}

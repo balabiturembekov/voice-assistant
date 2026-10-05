@@ -65,11 +65,14 @@
 
         {% if current_user.is_authenticated %}
         <div class="sidebar-footer">
-            <span class="avatar" aria-hidden="true">{{ current_user.username[:2] }}</span>
-            <div class="user-meta">
-                <strong>{{ current_user.username }}</strong>
-                <span>{{ current_user.role.value | capitalize }}</span>
-            </div>
+            <a class="sidebar-user" href="{{ url_for('auth.account') }}" title="My account"
+               {% if request.endpoint == 'auth.account' %}aria-current="page"{% endif %}>
+                <span class="avatar" aria-hidden="true">{{ current_user.initials }}</span>
+                <span class="user-meta">
+                    <strong>{{ current_user.display_name }}</strong>
+                    <span>{{ current_user.role.value | capitalize }} · My account</span>
+                </span>
+            </a>
             <form method="post" action="{{ url_for('auth.logout') }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="icon-btn" aria-label="Sign out" title="Sign out">

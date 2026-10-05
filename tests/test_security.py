@@ -151,13 +151,14 @@ def test_admin_can_create_user(client):
     assert User.query.filter_by(username="new").first() is not None
 
 
-def test_admin_cannot_create_user_with_short_password(client):
+def test_admin_cannot_set_a_short_manual_password(client):
     login(client, "admin")
     token = get_csrf_token(client, "/users")
-    client.post("/users", data={"username": "x", "password": "short", "role": "OPERATOR", "csrf_token": token})
+    client.post("/users", data={"username": "newbie", "password_mode": "manual", "password": "short",
+                                "role": "OPERATOR", "csrf_token": token})
     from models import User
 
-    assert User.query.filter_by(username="x").first() is None
+    assert User.query.filter_by(username="newbie").first() is None
 
 
 # --- Logs --------------------------------------------------------------------
