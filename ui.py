@@ -196,6 +196,8 @@ AUDIT_STYLE = {
     "user_enabled": ("good", "fa-user-check", "{actor} enabled {target}"),
     "password_reset": ("warning", "fa-key", "{actor} set a temporary password for {target}"),
     "password_changed": ("good", "fa-lock", "{target} changed their password"),
+    "calls_deleted": ("serious", "fa-trash-can", "{actor} deleted {detail}"),
+    "order_deleted": ("serious", "fa-trash-can", "{actor} deleted {detail}"),
 }
 
 

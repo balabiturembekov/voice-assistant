@@ -16,6 +16,15 @@
             onclick='openOrderStatus({{ order.id }}, {{ order.order_number | tojson }}, {{ (order.status or "") | tojson }})'>
         <i class="fas fa-pen" aria-hidden="true"></i>Update
     </button>
+    {% if current_user.is_admin %}
+    <form method="post" action="{{ url_for('delete_order_lookup', order_id=order.id) }}" class="d-inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn-c btn-danger-ghost"
+                onclick="return confirm('Delete this order lookup? The call stays. This cannot be undone.')">
+            <i class="fas fa-trash-can" aria-hidden="true"></i>Delete
+        </button>
+    </form>
+    {% endif %}
 {% endcall %}
 
 <div class="grid-detail">

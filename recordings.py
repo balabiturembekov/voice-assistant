@@ -69,6 +69,31 @@ def fetch_recording(url):
     return response.content
 
 
+def delete_recording(url):
+    """Delete a recording at Twilio. True if gone (also when it was already gone)."""
+    parsed = parse_recording_url(url)
+    if not parsed:
+        return True  # nothing at Twilio we could delete
+    account_sid, recording_sid = parsed
+    if not Config.TWILIO_AUTH_TOKEN:
+        raise RecordingUnavailable("TWILIO_AUTH_TOKEN is not set")
+    try:
+        response = requests.delete(
+            f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Recordings/{recording_sid}.json",
+            auth=(account_sid, Config.TWILIO_AUTH_TOKEN),
+            timeout=TIMEOUT,
+        )
+    except requests.RequestException as e:
+        raise RecordingUnavailable(f"Twilio unreachable: {e}") from e
+    if response.status_code not in (204, 404):
+        raise RecordingUnavailable(f"Twilio answered {response.status_code}")
+    try:
+        get_redis().delete(f"recording:{recording_sid}")
+    except Exception:
+        pass
+    return True
+
+
 def console_audio_url(message_id):
     """Link for emails: opens the recording in the console (sign-in required)"""
     return f"{Config.WEBSITE_URL.rstrip('/')}/voice-messages/{message_id}/audio"

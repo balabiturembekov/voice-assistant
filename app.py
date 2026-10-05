@@ -1,4 +1,4 @@
-from flask import Flask, request, Response, render_template, send_file
+from flask import Flask, Response, flash, redirect, render_template, request, send_file, url_for
 from twilio.twiml.voice_response import VoiceResponse
 from werkzeug.middleware.proxy_fix import ProxyFix
 from flask_migrate import Migrate
@@ -23,8 +23,10 @@ from models import (
     db,
     utcnow,
 )
-from auth import auth_bp
-from security import init_security, exempt_webhooks_from_csrf
+from auth import audit, auth_bp
+from flask_login import current_user
+from deletion import delete_calls, delete_order, deletion_summary
+from security import admin_required, exempt_webhooks_from_csrf, init_security
 from voice import apply_voice
 import ui
 from sqlalchemy import desc, func, or_, text
@@ -162,6 +164,7 @@ def call_detail(call_id):
         conversations=conversations,
         orders=orders,
         outcome=call_outcomes([call.id])[call.id],
+        deletion=deletion_summary([call.id]) if current_user.is_admin else None,
     )
 
 
@@ -340,6 +343,56 @@ def voice_message_audio(message_id):
         conditional=True,  # range requests, so the player can seek
         max_age=0,
     )
+
+
+@app.route("/calls/<int:call_id>/delete", methods=["POST"])
+@admin_required
+def delete_call(call_id):
+    """Permanently delete one call with everything that belongs to it (admins)"""
+    db.get_or_404(Call, call_id)
+    return _delete_calls_and_report([call_id])
+
+
+@app.route("/calls/delete", methods=["POST"])
+@admin_required
+def delete_selected_calls():
+    """Bulk delete; the dialog asks the admin to type DELETE"""
+    if request.form.get("confirm", "").strip().upper() != "DELETE":
+        flash("Type DELETE to confirm.", "danger")
+        return redirect(request.referrer or url_for("calls"))
+    ids = [int(i) for i in request.form.getlist("call_ids") if i.isdigit()]
+    if not ids:
+        flash("Select at least one call.", "danger")
+        return redirect(request.referrer or url_for("calls"))
+    return _delete_calls_and_report(ids)
+
+
+def _delete_calls_and_report(ids):
+    summary = deletion_summary(ids)
+    result = delete_calls(ids)
+    if result["deleted"]:
+        audit(
+            "calls_deleted",
+            detail=f"{len(result['deleted'])} call(s), {summary['voice_messages']} voice message(s), "
+                   f"{summary['orders']} order lookup(s)",
+        )
+        flash(f"Deleted {len(result['deleted'])} call(s) with their conversations, orders and recordings.", "success")
+    if result["failed"]:
+        flash(f"{len(result['failed'])} call(s) were kept: their recording could not be deleted at Twilio. "
+              "Try again later.", "danger")
+    return redirect(url_for("calls"))
+
+
+@app.route("/orders/<int:order_id>/delete", methods=["POST"])
+@admin_required
+def delete_order_lookup(order_id):
+    """Delete one order lookup record; the call stays (admins)"""
+    order = db.get_or_404(Order, order_id)
+    number = order.order_number
+    delete_order(order)
+    audit("order_deleted", detail=f"order lookup {number}")
+    flash(f"Order lookup {number} deleted.", "success")
+    return redirect(url_for("orders"))
 
 
 @app.route("/webhook/recorded", methods=["POST"])
@@ -542,6 +595,34 @@ def purge_old_data_command(days):
         raise click.ClickException("Set DATA_RETENTION_DAYS or pass --days")
     count = anonymize_calls_older_than(days)
     click.echo(f"Anonymized {count} call(s) older than {days} days")
+
+
+@app.cli.command("delete-calls")
+@click.option("--all", "delete_all", is_flag=True, help="Delete every call")
+@click.option("--ids", default="", help="Comma separated call ids")
+@click.option("--yes", is_flag=True, help="Don't ask for confirmation")
+def delete_calls_command(delete_all, ids, yes):
+    """Permanently delete calls with conversations, orders, voice messages and Twilio recordings"""
+    if delete_all:
+        call_ids = [c.id for c in Call.query.with_entities(Call.id)]
+    else:
+        call_ids = [int(i) for i in ids.split(",") if i.strip().isdigit()]
+    if not call_ids:
+        raise click.ClickException("Nothing to delete: pass --all or --ids")
+    summary = deletion_summary(call_ids)
+    click.echo(
+        f"About to delete {summary['calls']} call(s), {summary['events']} conversation event(s), "
+        f"{summary['orders']} order lookup(s), {summary['voice_messages']} voice message(s) "
+        "and their recordings at Twilio."
+    )
+    if not yes:
+        click.confirm("This cannot be undone. Continue?", abort=True)
+    result = delete_calls(call_ids)
+    with app.test_request_context():
+        audit("calls_deleted", detail=f"{len(result['deleted'])} call(s) via CLI")
+    click.echo(f"Deleted {len(result['deleted'])} call(s).")
+    for call_id, reason in result["failed"].items():
+        click.echo(f"Kept call {call_id}: {reason}", err=True)
 
 
 if __name__ == "__main__":
