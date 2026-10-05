@@ -161,7 +161,7 @@ def test_found_and_verified_by_phone(client, call, afterbuy):
     assert "Max" not in spoken  # no names on the phone
     assert gather_action(root).startswith("/webhook/next?")
     assert "verified=1" in gather_action(root)
-    assert Order.query.one().notes == "Verification: phone"
+    assert Order.query.one().notes == "Verification: caller's phone matches"
     db.session.refresh(call)
     assert call.status == CallStatus.COMPLETED
 
@@ -401,3 +401,100 @@ def test_empty_dashboard(client, app):
     html = client.get("/").get_data(as_text=True)
     assert "No calls yet" in html
     assert "—" in html  # no self-service rate without calls
+
+
+# --- Event clarity ------------------------------------------------------------------
+
+def steps_of(call):
+    return [(c.step, c.user_input) for c in Conversation.query.filter_by(call_id=call.id).order_by(Conversation.id)]
+
+
+def test_postcode_attempts_are_logged_and_order_marked(client, call, afterbuy):
+    afterbuy["555"] = order(phone="+49 30 9999999")
+    hook(client, "/webhook/order-number?attempt=1", "555")
+    hook(client, "/webhook/plz?order=555&attempt=1", "11111")
+    hook(client, "/webhook/plz?order=555&attempt=2")  # silence on the 2nd try
+    steps = steps_of(call)
+    assert ("ivr_plz_requested", "555 attempt=1") in steps
+    assert ("ivr_plz_requested", "555 attempt=2") in steps
+    assert ("ivr_plz_mismatch", "555 attempt=1") in steps
+    assert ("ivr_plz_mismatch", "555 attempt=2 no_input") in steps
+    assert ("status_spoken", "unverified") in steps
+    assert Order.query.one().notes == "Verification: failed (postcode did not match)"
+    # the wrong postcode itself is never stored
+    assert not any("11111" in (value or "") for _, value in steps)
+
+
+def test_silence_and_transfer_reason_are_logged(client, call, open_hours):
+    hook(client, "/webhook/order-number?attempt=1")
+    hook(client, "/webhook/order-number?attempt=2")
+    steps = steps_of(call)
+    assert ("ivr_no_input", "order_number attempt=1") in steps
+    assert ("ivr_no_input", "order_number attempt=2") in steps
+    assert ("agent_requested", "no_input") in steps
+
+
+def test_follow_up_choice_has_its_own_event(client, call):
+    hook(client, "/webhook/next?order=1&verified=1&kind=status&attempt=1", "1")
+    assert ("ivr_next_choice", "1") in steps_of(call)
+
+
+@pytest.mark.parametrize(
+    "step,value,expected",
+    [
+        ("menu_choice", "1", "Pressed 1 · order status"),
+        ("menu_choice", "next:1", "Pressed 1 · another order"),  # legacy format on prod
+        ("ivr_next_choice", "*", "Pressed * · repeat the status"),
+        ("not_verified", "postal_code_mismatch", "Postcode didn't match twice · no details shared"),
+        ("status_spoken", "830859702 verified=0", "Shared without details (caller not verified)"),  # legacy
+        ("status_spoken", "verified", "Shared delivery window and open balance"),
+        ("ivr_no_input", "order_number attempt=2", "Nothing entered in the order number · attempt 2 of 2"),
+        ("ivr_plz_mismatch", "555 attempt=1", "Order 555 · attempt 1 of 2"),
+        ("agent_requested", "no_input", "No input from the caller"),
+        ("agent_connected", "completed", "Call answered"),
+    ],
+)
+def test_event_detail_is_human_readable(step, value, expected):
+    from ui import event_detail
+
+    assert event_detail(step, value)[0] == expected
+
+
+def test_order_numbers_stay_monospace():
+    from ui import event_detail
+
+    assert event_detail("ivr_order_number", "24896241") == ("24896241", True)
+
+
+def test_verification_card_flags_probing(client, app, afterbuy):
+    from analytics import verification_failures
+    from tests.conftest import login
+
+    afterbuy["555"] = order(phone="+49 30 9999999")
+    for i in range(2):  # two calls, 2 wrong postcodes each
+        params = {"From": CALLER, "To": TWILIO_NUMBER, "CallSid": f"CAprobe{i}"}
+        post_webhook(client, "/webhook/voice", params)
+        post_webhook(client, "/webhook/plz?order=555&attempt=1", {**params, "Digits": "11111"})
+        post_webhook(client, "/webhook/plz?order=555&attempt=2", {**params, "Digits": "22222"})
+
+    v = verification_failures()
+    assert v["orders"][0]["number"] == "555"
+    assert v["orders"][0]["attempts"] == 4 and v["orders"][0]["calls"] == 2
+    assert v["suspicious"] == 1
+
+    login(client, "operator")
+    html = client.get("/").get_data(as_text=True)
+    assert "Possible probing" in html
+
+
+def test_call_detail_shows_readable_events(client, call, afterbuy):
+    from tests.conftest import login
+
+    afterbuy["555"] = order(phone="+49 30 9999999")
+    hook(client, "/webhook/order-number?attempt=1", "555")
+    hook(client, "/webhook/plz?order=555&attempt=1", "1")
+    login(client, "operator")
+    html = client.get(f"/calls/{call.id}").get_data(as_text=True)
+    assert "Postcode requested" in html and "Postcode didn&#39;t match" in html
+    assert "attempt 1 of 2" in html
+    assert "attempt=1" not in html

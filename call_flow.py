@@ -49,6 +49,16 @@ EVENT_AGENT_CONNECTED = "agent_connected"
 EVENT_AGENT_NO_ANSWER = "agent_no_answer"
 EVENT_VOICEMAIL = "voicemail_started"
 EVENT_GOODBYE = "goodbye"
+EVENT_NEXT_MENU = "ivr_next_choice"
+EVENT_PLZ_REQUESTED = "ivr_plz_requested"
+EVENT_PLZ_MISMATCH = "ivr_plz_mismatch"
+EVENT_NO_INPUT = "ivr_no_input"
+
+# Why a caller ends up with the team (agent_requested.user_input)
+AGENT_REASON_CHOICE = "caller_choice"
+AGENT_REASON_NO_INPUT = "no_input"
+AGENT_REASON_OVERDUE = "overdue"
+AGENT_REASON_MENU = "menu_not_understood"
 
 
 # --- Helpers -----------------------------------------------------------------
@@ -167,7 +177,8 @@ def render_order_number(response, call, attempt=1):
 
 def render_plz(response, call, order, attempt=1):
     gather = _gather(response, "plz_input", timeout=NUMBER_TIMEOUT, order=order, attempt=attempt)
-    _say(gather, call, "plz")
+    text = _say(gather, call, "plz")
+    _event(call, EVENT_PLZ_REQUESTED, user_input=f"{order} attempt={attempt}", bot_response=text)
 
 
 def render_next_menu(response, call, order="", verified=0, kind="status", attempt=1):
@@ -200,9 +211,9 @@ def render_voicemail(response, call):
     )
 
 
-def render_agent(response, call):
+def render_agent(response, call, reason=AGENT_REASON_CHOICE):
     """Transfer to the team in business hours; otherwise (or if nobody answers) voicemail"""
-    _event(call, EVENT_AGENT_REQUESTED)
+    _event(call, EVENT_AGENT_REQUESTED, user_input=reason)
     if not is_business_hours() or not Config.AGENT_NUMBERS:
         text = _say(response, call, "agent_after_hours", hours=_hours_text(call))
         _event(call, EVENT_AFTER_HOURS, bot_response=text)
@@ -240,7 +251,7 @@ def speak_status(response, call, number, order_data, verified):
         text = _say(response, call, "status_overdue")
         _event(call, EVENT_OVERDUE, user_input=number, bot_response=text)
         update_call_status(call.id, CallStatus.PROBLEM)
-        render_agent(response, call)
+        render_agent(response, call, AGENT_REASON_OVERDUE)
         return
 
     if not verified:
@@ -255,7 +266,7 @@ def speak_status(response, call, number, order_data, verified):
                 response, call, "status_open_amount",
                 amount=status.euro_for_speech(amount, language),
             )
-    _event(call, EVENT_STATUS, user_input=f"{number} verified={int(verified)}", bot_response=text)
+    _event(call, EVENT_STATUS, user_input="verified" if verified else "unverified", bot_response=text)
     update_call_status(call.id, CallStatus.COMPLETED)
     render_next_menu(response, call, order=number, verified=int(verified))
 
@@ -274,6 +285,18 @@ def _save_order(call, number, order_data, verification=None):
         order.notes = "Order not found in AfterBuy"
     db.session.add(order)
     db.session.commit()
+
+
+def _set_verification(call, number, result):
+    """Record the verification result on the order looked up in this call"""
+    order = (
+        Order.query.filter_by(call_id=call.id, order_number=number)
+        .order_by(Order.id.desc())
+        .first()
+    )
+    if order:
+        order.notes = f"Verification: {result}"
+        db.session.commit()
 
 
 def _goodbye(response, call):
@@ -322,10 +345,14 @@ def menu_input():
     elif attempt < MAX_ATTEMPTS:
         if digits:
             _say(response, call, "menu_retry")
+        else:
+            _event(call, EVENT_NO_INPUT, user_input=f"menu attempt={attempt}")
         render_menu(response, call, attempt + 1)
     else:
         # Caller is stuck in the menu: a human helps best
-        render_agent(response, call)
+        if not digits:
+            _event(call, EVENT_NO_INPUT, user_input=f"menu attempt={attempt}")
+        render_agent(response, call, AGENT_REASON_MENU if digits else AGENT_REASON_NO_INPUT)
     return response
 
 
@@ -340,11 +367,12 @@ def order_number_input():
         return response
 
     if not number:
+        _event(call, EVENT_NO_INPUT, user_input=f"order_number attempt={attempt}")
         if attempt < MAX_ATTEMPTS:
             _say(response, call, "order_number_retry")
             render_order_number(response, call, attempt + 1)
         else:
-            render_agent(response, call)
+            render_agent(response, call, AGENT_REASON_NO_INPUT)
         return response
 
     _event(call, EVENT_ORDER_INPUT, user_input=number)
@@ -365,14 +393,14 @@ def order_number_input():
 
     _event(call, EVENT_ORDER_FOUND, user_input=number)
     if status.phone_matches(call.phone_number, status.order_phone(order_data)):
-        _save_order(call, number, order_data, "phone")
+        _save_order(call, number, order_data, "caller's phone matches")
         _event(call, EVENT_VERIFIED, user_input="phone")
         speak_status(response, call, number, order_data, verified=True)
     elif status.order_postal_code(order_data):
-        _save_order(call, number, order_data, "postal_code_requested")
+        _save_order(call, number, order_data, "postcode requested")
         render_plz(response, call, number)
     else:
-        _save_order(call, number, order_data, "none_possible")
+        _save_order(call, number, order_data, "not possible (no phone or postcode on the order)")
         _event(call, EVENT_NOT_VERIFIED, user_input="no_phone_or_postal_code")
         speak_status(response, call, number, order_data, verified=False)
     return response
@@ -391,12 +419,19 @@ def plz_input():
 
     if status.postal_code_matches(_digits(), status.order_postal_code(order_data)):
         _event(call, EVENT_VERIFIED, user_input="postal_code")
+        _set_verification(call, number, "postal code")
         speak_status(response, call, number, order_data, verified=True)
-    elif attempt < MAX_ATTEMPTS:
+        return response
+
+    # The entered postcode itself is not stored
+    _event(call, EVENT_PLZ_MISMATCH,
+           user_input=f"{number} attempt={attempt}" + ("" if _digits() else " no_input"))
+    if attempt < MAX_ATTEMPTS:
         _say(response, call, "plz_retry")
         render_plz(response, call, number, attempt + 1)
     else:
         _event(call, EVENT_NOT_VERIFIED, user_input="postal_code_mismatch")
+        _set_verification(call, number, "failed (postcode did not match)")
         speak_status(response, call, number, order_data, verified=False)
     return response
 
@@ -414,7 +449,7 @@ def next_input():
         _goodbye(response, call)
         return response
     if digits:
-        _event(call, EVENT_MENU, user_input=f"next:{digits}")
+        _event(call, EVENT_NEXT_MENU, user_input=digits)
 
     if digits == "*" and kind == "status" and number:
         order_data = get_order_from_afterbuy(number)
@@ -431,6 +466,8 @@ def next_input():
     elif attempt < MAX_ATTEMPTS:
         if digits:
             _say(response, call, "menu_retry")
+        else:
+            _event(call, EVENT_NO_INPUT, user_input=f"next attempt={attempt}")
         render_next_menu(response, call, number, int(verified), kind, attempt + 1)
     else:
         _goodbye(response, call)

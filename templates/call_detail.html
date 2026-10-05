@@ -106,7 +106,11 @@
                                 <span class="who">{{ {'lisa': 'Lisa', 'caller': 'Caller', 'system': 'System'}[s.actor] }}</span>
                                 <time datetime="{{ conv.timestamp.isoformat() }}Z">{{ conv.timestamp | local_time('%H:%M:%S') }}</time>
                             </div>
-                            {% if conv.user_input %}<span class="tl-input mono">{{ conv.user_input }}</span>{% endif %}
+                            {% set detail = event_detail(conv.step, conv.user_input) %}
+                            {% if detail %}
+                            {% set detail_text, is_code = detail %}
+                            <span class="tl-input {{ 'mono' if is_code }}">{{ detail_text }}</span>
+                            {% endif %}
                             {% if conv.bot_response %}<p class="tl-text">{{ conv.bot_response }}</p>{% endif %}
                         </div>
                     </li>
