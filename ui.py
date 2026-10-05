@@ -1,6 +1,8 @@
 """
 Template helpers for the console: human labels and status tones (icon + label)
 """
+import re
+
 from flask import request, url_for
 
 from models import CallStatus
@@ -43,6 +45,40 @@ STEP_STYLE = {
     "voice_message_recorded": ("Voice message recorded", "fa-microphone-lines", "caller"),
     "voice_message_failed": ("Voice message failed", "fa-microphone-slash", "system"),
     "goodbye": ("Goodbye", "fa-hand", "lisa"),
+    "ivr_next_choice": ("Follow-up choice", "fa-grip", "caller"),
+    "ivr_plz_requested": ("Postcode requested", "fa-location-dot", "lisa"),
+    "ivr_plz_mismatch": ("Postcode didn't match", "fa-location-crosshairs", "caller"),
+    "ivr_no_input": ("No input", "fa-volume-xmark", "caller"),
+}
+
+MAIN_MENU = {
+    "1": "Pressed 1 · order status",
+    "2": "Pressed 2 · leave a message",
+    "0": "Pressed 0 · speak to the team",
+    "9": "Pressed 9 · switch language",
+}
+NEXT_MENU = {
+    "*": "Pressed * · repeat the status",
+    "1": "Pressed 1 · another order",
+    "2": "Pressed 2 · leave a message",
+    "0": "Pressed 0 · speak to the team",
+}
+INPUT_STEPS = {
+    "menu": "main menu",
+    "order_number": "order number",
+    "next": "follow-up menu",
+}
+AGENT_REASONS = {
+    "caller_choice": "Caller asked for the team",
+    "no_input": "No input from the caller",
+    "overdue": "Delivery is overdue",
+    "menu_not_understood": "Caller's choices were not understood",
+}
+VERIFICATION = {
+    "phone": "Caller's phone matches the order",
+    "postal_code": "Postcode matched the billing address",
+    "postal_code_mismatch": "Postcode didn't match twice · no details shared",
+    "no_phone_or_postal_code": "Order has no phone or postcode to check · no details shared",
 }
 
 
@@ -63,6 +99,47 @@ def step_style(step):
     return {"label": label, "icon": icon, "actor": actor}
 
 
+def event_detail(step, value):
+    """Human-readable text for Conversation.user_input; None = show nothing extra.
+
+    Returns (text, is_code): is_code=True keeps monospace (order numbers, raw values).
+    """
+    if not value:
+        return None
+    attempt = re.search(r"attempt=(\d+)", value)
+    attempt_text = f"attempt {attempt.group(1)} of 2" if attempt else ""
+
+    if step == "menu_choice":
+        if value.startswith("next:"):  # pre-1.1 format
+            return NEXT_MENU.get(value[5:], f"Pressed {value[5:]}"), False
+        return MAIN_MENU.get(value, f"Pressed {value} · not a menu option"), False
+    if step == "ivr_next_choice":
+        return NEXT_MENU.get(value, f"Pressed {value} · not a menu option"), False
+    if step == "ivr_no_input":
+        where = INPUT_STEPS.get(value.split()[0], value.split()[0])
+        return f"Nothing entered in the {where} · {attempt_text}", False
+    if step in ("ivr_plz_requested", "ivr_plz_mismatch"):
+        number = value.split()[0]
+        text = f"Order {number} · {attempt_text}"
+        if "no_input" in value:
+            text += " · nothing entered"
+        return text, False
+    if step in ("verified", "not_verified"):
+        return VERIFICATION.get(value, value), False
+    if step == "status_spoken":
+        if value == "no_order_date":
+            return "Order has no date · shared without details", False
+        verified = value == "verified" or value.endswith("verified=1")
+        return ("Shared delivery window and open balance" if verified
+                else "Shared without details (caller not verified)"), False
+    if step == "agent_requested":
+        return AGENT_REASONS.get(value, value), False
+    if step in ("agent_connected", "agent_no_answer"):
+        return {"completed": "Call answered", "answered": "Call answered", "no-answer": "Nobody answered",
+                "busy": "Line busy", "failed": "Call failed", "canceled": "Caller hung up"}.get(value, value), False
+    return value, True
+
+
 def page_url(page):
     """Current URL with another page number, keeping the filters"""
     args = request.args.to_dict()
@@ -75,6 +152,7 @@ def register(app):
         call_status_style=call_status_style,
         order_status_style=order_status_style,
         step_style=step_style,
+        event_detail=event_detail,
         page_url=page_url,
         CallStatus=CallStatus,
     )

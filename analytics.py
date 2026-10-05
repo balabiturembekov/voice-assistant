@@ -95,6 +95,37 @@ def call_outcomes(call_ids):
     return outcomes
 
 
+# A postcode guessed wrong this often for one order looks like someone probing
+SUSPICIOUS_ATTEMPTS = 3
+
+
+def verification_failures(days=30, limit=5):
+    """Orders with failed postcode checks: [{number, attempts, calls, last, suspicious}]"""
+    since = utcnow() - timedelta(days=days)
+    rows = (
+        db.session.query(Conversation.user_input, Conversation.call_id, Conversation.timestamp)
+        .filter(Conversation.step == flow.EVENT_PLZ_MISMATCH, Conversation.timestamp >= since)
+        .all()
+    )
+    by_order = {}
+    for value, call_id, timestamp in rows:
+        number = (value or "").split()[0] if value else ""
+        if not number:
+            continue
+        item = by_order.setdefault(number, {"number": number, "attempts": 0, "calls": set(), "last": timestamp})
+        item["attempts"] += 1
+        item["calls"].add(call_id)
+        item["last"] = max(item["last"], timestamp)
+    items = []
+    for item in by_order.values():
+        item["calls"] = len(item["calls"])
+        item["suspicious"] = item["attempts"] >= SUSPICIOUS_ATTEMPTS
+        items.append(item)
+    items.sort(key=lambda i: (i["suspicious"], i["attempts"], i["last"]), reverse=True)
+    return {"total_attempts": sum(i["attempts"] for i in items), "orders": items[:limit],
+            "order_count": len(items), "suspicious": sum(i["suspicious"] for i in items)}
+
+
 def dashboard_data(days=30):
     since = utcnow() - timedelta(days=days)
     funnel = funnel_stats(days)
@@ -117,4 +148,5 @@ def dashboard_data(days=30):
         "voice_messages": voice_messages,
         "failed_emails": failed_emails,
         "problems": problems,
+        "verification": verification_failures(days),
     }

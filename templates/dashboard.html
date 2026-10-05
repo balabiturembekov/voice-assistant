@@ -208,4 +208,45 @@
         {% endif %}
     </section>
 </div>
+<!-- Verification -->
+{% set v = verification %}
+<section class="card-c" aria-labelledby="verification-title" style="margin-bottom: 24px;">
+    <div class="card-c-header">
+        <h2 id="verification-title">Caller verification</h2>
+        <span class="sub">Failed postcode checks · last {{ f.days }} days</span>
+    </div>
+    {% if v.orders %}
+    <div class="card-c-body" style="padding-bottom: 0;">
+        <p class="muted" style="margin: 0 0 12px; font-size: 14px;">
+            {{ v.total_attempts }} wrong postcode{{ 's' if v.total_attempts != 1 }} for {{ v.order_count }} order{{ 's' if v.order_count != 1 }}.
+            Lisa shared no details in these calls.
+            {% if v.suspicious %}<strong style="color: var(--serious);">{{ v.suspicious }} order{{ 's' if v.suspicious != 1 }} may be probed by someone guessing postcodes.</strong>{% endif %}
+        </p>
+    </div>
+    <div class="table-wrap">
+        <table class="table-c">
+            <thead><tr><th scope="col">Order</th><th scope="col">Wrong postcodes</th><th scope="col">Calls</th><th scope="col">Last attempt</th><th scope="col">Risk</th></tr></thead>
+            <tbody>
+            {% for item in v.orders %}
+            <tr>
+                <td><a class="row-link mono" href="{{ url_for('orders', order_number=item.number) }}"><strong>{{ item.number }}</strong></a></td>
+                <td class="tabular">{{ item.attempts }}</td>
+                <td class="tabular">{{ item.calls }}</td>
+                <td class="muted tabular">{{ item.last | local_time }}</td>
+                <td>
+                    {% if item.suspicious %}
+                    <span class="badge-c tone-serious"><i class="fas fa-user-secret" aria-hidden="true"></i>Possible probing</span>
+                    {% else %}
+                    <span class="badge-c tone-neutral"><i class="fas fa-circle-info" aria-hidden="true"></i>Likely a typo</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty"><i class="fas fa-shield-halved" aria-hidden="true"></i>No failed postcode checks. Callers either called from the order's phone or knew the postcode.</div>
+    {% endif %}
+</section>
 {% endblock %}
