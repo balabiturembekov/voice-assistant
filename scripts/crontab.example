@@ -1,0 +1,7 @@
+# crontab -e  (пользователь с доступом к docker, путь к проекту поправить)
+# Бэкап базы каждую ночь
+15 3 * * * cd ~/voice-assistant && ./scripts/backup_db.sh >> backups/backup.log 2>&1
+# Страховка: повторить письма, которые не ушли (например, Redis был недоступен)
+*/10 * * * * cd ~/voice-assistant && docker compose exec -T voice-assistant flask --app app retry-unsent-emails > /dev/null 2>&1
+# GDPR: обезличивание старых звонков (нужен DATA_RETENTION_DAYS в .env)
+30 3 * * * cd ~/voice-assistant && docker compose exec -T voice-assistant flask --app app purge-old-data >> backups/purge.log 2>&1

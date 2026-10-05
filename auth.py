@@ -2,15 +2,13 @@
 Dashboard authentication and user management
 """
 import logging
-import time
-from collections import defaultdict, deque
-from datetime import datetime
 from urllib.parse import urlparse
 
 from flask import Blueprint, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_user, logout_user
 
-from models import User, UserRole, db
+from jobs_queue import get_redis
+from models import User, UserRole, db, utcnow
 from security import admin_required
 
 logger = logging.getLogger(__name__)
@@ -21,16 +19,35 @@ MAX_FAILED_LOGINS = 10
 FAILED_LOGIN_WINDOW = 15 * 60  # seconds
 MIN_PASSWORD_LENGTH = 12
 
-# Per-process throttle; good enough until Redis arrives in stage 2
-_failed_logins = defaultdict(deque)
+
+def _throttle_key(ip):
+    return f"login:failed:{ip}"
 
 
 def _is_throttled(ip):
-    attempts = _failed_logins[ip]
-    now = time.monotonic()
-    while attempts and now - attempts[0] > FAILED_LOGIN_WINDOW:
-        attempts.popleft()
-    return len(attempts) >= MAX_FAILED_LOGINS
+    try:
+        return int(get_redis().get(_throttle_key(ip)) or 0) >= MAX_FAILED_LOGINS
+    except Exception as e:
+        logger.warning(f"Login throttle unavailable: {e}")
+        return False
+
+
+def _record_failed_login(ip):
+    try:
+        key = _throttle_key(ip)
+        pipe = get_redis().pipeline()
+        pipe.incr(key)
+        pipe.expire(key, FAILED_LOGIN_WINDOW)
+        pipe.execute()
+    except Exception as e:
+        logger.warning(f"Login throttle unavailable: {e}")
+
+
+def _reset_failed_logins(ip):
+    try:
+        get_redis().delete(_throttle_key(ip))
+    except Exception:
+        pass
 
 
 def _safe_next_url(target):
@@ -60,14 +77,14 @@ def login():
         user = User.query.filter_by(username=username).first()
 
         if user and user.is_active and user.check_password(password):
-            _failed_logins.pop(ip, None)
+            _reset_failed_logins(ip)
             login_user(user, remember=False)
-            user.last_login_at = datetime.utcnow()
+            user.last_login_at = utcnow()
             db.session.commit()
             logger.info(f"User {user.username} logged in")
             return redirect(_safe_next_url(request.args.get("next")))
 
-        _failed_logins[ip].append(time.monotonic())
+        _record_failed_login(ip)
         logger.warning(f"Failed login for '{username}' from {ip}")
         flash("Неверный логин или пароль.", "danger")
 

@@ -366,7 +366,6 @@ config.old
 
 # Development tools
 dev_tools/
-scripts/
 utils/
 
 # Documentation drafts

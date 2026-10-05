@@ -1,18 +1,26 @@
+x-app-env: &app-env
+  env_file:
+    - .env
+  environment:
+    - DATABASE_URL=postgresql://voice:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/voice_assistant
+    - REDIS_URL=redis://redis:6379/0
+    - FLASK_ENV=production
+
 services:
   voice-assistant:
     build: .
-    env_file:
-      - .env
-    environment:
-      # База внутри смонтированного volume, чтобы переживала пересоздание контейнера
-      - DATABASE_URL=sqlite:////app/instance/voice_assistant.db
-      - FLASK_ENV=production
-      - FLASK_DEBUG=False
+    <<: *app-env
     volumes:
+      # Old SQLite database, kept for the one-off migration to Postgres
       - ./instance:/app/instance
     # Доступ только с хоста: снаружи трафик идёт через системный nginx
     ports:
       - "127.0.0.1:8283:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
@@ -20,3 +28,46 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+
+  worker:
+    build: .
+    <<: *app-env
+    command: ["rq", "worker", "--with-scheduler", "--url", "redis://redis:6379/0", "default"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=voice_assistant
+      - POSTGRES_USER=voice
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U voice -d voice_assistant"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    # appendonly: queued jobs survive a Redis restart
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
+  redisdata:

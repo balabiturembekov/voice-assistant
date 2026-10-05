@@ -1,7 +1,9 @@
 import os
 import sys
 
+import fakeredis
 import pytest
+from twilio.request_validator import RequestValidator
 
 # Settings must exist before config.py / app.py are imported
 TEST_ENV = {
@@ -16,14 +18,25 @@ TEST_ENV = {
     "FLASK_DEBUG": "False",
     "SESSION_COOKIE_SECURE": "False",
     "DATABASE_URL": "sqlite://",
+    "QUEUE_SYNC": "True",
+    "TRANSCRIPTION_SERVICE": "twilio",
 }
 os.environ.update(TEST_ENV)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app import app as flask_app  # noqa: E402
+from jobs_queue import set_redis  # noqa: E402
 from models import User, UserRole, db  # noqa: E402
 
 PASSWORD = "correct-horse-battery"
+
+
+@pytest.fixture(autouse=True)
+def fake_redis():
+    connection = fakeredis.FakeRedis()
+    set_redis(connection)
+    yield connection
+    set_redis(None)
 
 
 @pytest.fixture
@@ -59,3 +72,10 @@ def login(client, username, password=PASSWORD):
         "/login",
         data={"username": username, "password": password, "csrf_token": token},
     )
+
+
+def post_webhook(client, path, params):
+    """POST to a Twilio webhook with a valid X-Twilio-Signature"""
+    url = f"http://localhost{path}"
+    signature = RequestValidator(TEST_ENV["TWILIO_AUTH_TOKEN"]).compute_signature(url, params)
+    return client.post(path, data=params, headers={"X-Twilio-Signature": signature})

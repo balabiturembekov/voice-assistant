@@ -67,6 +67,34 @@ python init_db.py
 python app.py
 ```
 
+## 🏗️ Инфраструктура
+
+`docker compose up -d --build` поднимает четыре контейнера:
+
+| Сервис | Назначение |
+|---|---|
+| `voice-assistant` | Flask + gunicorn, вебхуки Twilio и дашборд (127.0.0.1:8283) |
+| `worker` | RQ-воркер: письма о голосовых сообщениях, внешняя транскрипция, отложенные задачи |
+| `postgres` | PostgreSQL 16, данные в volume `pgdata` |
+| `redis` | очередь задач, кэш Afterbuy, лимит попыток входа |
+
+**Схема БД** управляется миграциями Alembic: контейнер при старте выполняет
+`flask --app app db upgrade`. Новая миграция после изменения моделей:
+`flask --app app db migrate -m "описание"`.
+
+**Голосовые сообщения.** Колбэки Twilio (`/webhook/recorded`, `/recording_status`,
+`/transcription`) только сохраняют данные в таблицу `voice_messages` и ставят задачу
+в очередь. Письмо отправляет воркер, ровно одно на `RecordingSid`, с повторами при
+ошибке SMTP. Если транскрипция не пришла за `VOICE_EMAIL_FALLBACK_DELAY` секунд
+(по умолчанию 300), письмо уходит без неё. Статус письма виден на странице звонка.
+
+**Эксплуатация:**
+- `./deploy.sh`: git pull, бэкап, сборка, проверка `/health`.
+- `scripts/backup_db.sh`: дамп Postgres в `./backups` (хранится 14 дней).
+- `scripts/crontab.example`: ночной бэкап, повтор неотправленных писем, GDPR-очистка.
+- `flask --app app purge-old-data --days 90`: обезличивание старых звонков.
+- `/health` проверяет базу и Redis (503, если что-то недоступно).
+
 ## 🔐 Безопасность
 
 - **Секреты только из окружения.** Обязательные переменные: `SECRET_KEY`, `TWILIO_AUTH_TOKEN`,

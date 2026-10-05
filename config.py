@@ -6,6 +6,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def env_bool(name, default):
+    """'true'/'1'/'yes' (any case) -> True"""
+    return os.getenv(name, default).strip().lower() in ("true", "1", "yes")
+
+
 class Config:
     # Twilio Configuration
     TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
@@ -21,7 +26,7 @@ class Config:
 
     # Validate X-Twilio-Signature on /webhook/* (needs TWILIO_AUTH_TOKEN)
     TWILIO_VALIDATE_REQUESTS = (
-        os.getenv("TWILIO_VALIDATE_REQUESTS", "True").lower() == "true"
+        env_bool("TWILIO_VALIDATE_REQUESTS", "True")
     )
 
     # AfterBuy Configuration (secrets only from environment)
@@ -33,14 +38,14 @@ class Config:
 
     # Flask Configuration
     FLASK_ENV = os.getenv("FLASK_ENV", "production")
-    FLASK_DEBUG = os.getenv("FLASK_DEBUG", "False").lower() == "true"
+    FLASK_DEBUG = env_bool("FLASK_DEBUG", "False")
     SECRET_KEY = os.getenv("SECRET_KEY")
 
     # Session cookies (admin login)
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
     SESSION_COOKIE_SECURE = (
-        os.getenv("SESSION_COOKIE_SECURE", "True").lower() == "true"
+        env_bool("SESSION_COOKIE_SECURE", "True")
     )
     REMEMBER_COOKIE_HTTPONLY = True
     REMEMBER_COOKIE_SECURE = SESSION_COOKIE_SECURE
@@ -56,16 +61,29 @@ class Config:
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
+    # Redis: job queue, Afterbuy cache, login throttling
+    REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    # Run jobs inline instead of via the worker (tests, quick local runs)
+    QUEUE_SYNC = env_bool("QUEUE_SYNC", "False")
+    # Send the voice message email without transcription if none arrived by then
+    VOICE_EMAIL_FALLBACK_DELAY = int(os.getenv("VOICE_EMAIL_FALLBACK_DELAY", "300"))
+
+    # Afterbuy: Twilio waits ~15s for a webhook answer, keep lookups well below
+    AFTERBUY_CONNECT_TIMEOUT = float(os.getenv("AFTERBUY_CONNECT_TIMEOUT", "3"))
+    AFTERBUY_READ_TIMEOUT = float(os.getenv("AFTERBUY_READ_TIMEOUT", "5"))
+    AFTERBUY_CACHE_TTL = int(os.getenv("AFTERBUY_CACHE_TTL", "300"))
+
+    # GDPR: anonymize calls older than N days (purge-old-data); empty = disabled
+    DATA_RETENTION_DAYS = int(os.getenv("DATA_RETENTION_DAYS") or 0) or None
+
     # Email Configuration
     # Support both EMAIL_* and MAIL_* environment variables for compatibility
     MAIL_SERVER = os.getenv("EMAIL_HOST") or os.getenv(
         "MAIL_SERVER", "w01da240.kasserver.com"
     )
     MAIL_PORT = int(os.getenv("EMAIL_PORT") or os.getenv("MAIL_PORT", "587"))
-    MAIL_USE_TLS = (
-        os.getenv("EMAIL_USE_TLS") or os.getenv("MAIL_USE_TLS", "True")
-    ).lower() == "true"
-    MAIL_USE_SSL = os.getenv("MAIL_USE_SSL", "False").lower() == "true"
+    MAIL_USE_TLS = env_bool("EMAIL_USE_TLS", os.getenv("MAIL_USE_TLS", "True"))
+    MAIL_USE_SSL = env_bool("MAIL_USE_SSL", "False")
     MAIL_USERNAME = os.getenv("EMAIL_HOST_USER") or os.getenv("MAIL_USERNAME", "")
     MAIL_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD") or os.getenv("MAIL_PASSWORD", "")
     MAIL_DEFAULT_SENDER = os.getenv("DEFAULT_FROM_EMAIL") or os.getenv(
