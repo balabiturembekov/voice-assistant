@@ -1,4 +1,5 @@
 import os
+from datetime import timedelta
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -18,20 +19,32 @@ class Config:
     # Voice Configuration
     VOICE_NAME = os.getenv("VOICE_NAME", "alice")
 
-    # AfterBuy Configuration
-    AFTERBUY_PARTNER_ID = os.getenv("AFTERBUY_PARTNER_ID", "113464")
-    AFTERBUY_PARTNER_TOKEN = os.getenv(
-        "AFTERBUY_PARTNER_TOKEN", "6722d455-4d02-4da3-97ef-f5dfcf73656d"
+    # Validate X-Twilio-Signature on /webhook/* (needs TWILIO_AUTH_TOKEN)
+    TWILIO_VALIDATE_REQUESTS = (
+        os.getenv("TWILIO_VALIDATE_REQUESTS", "True").lower() == "true"
     )
-    AFTERBUY_ACCOUNT_TOKEN = os.getenv(
-        "AFTERBUY_ACCOUNT_TOKEN", "53217733-1987-4cf8-a065-2c2591e4765c"
-    )
-    AFTERBUY_USER_ID = os.getenv("AFTERBUY_USER_ID", "Balabi")
-    AFTERBUY_USER_PASSWORD = os.getenv("AFTERBUY_USER_PASSWORD", "Parol4Balabi2025!")
+
+    # AfterBuy Configuration (secrets only from environment)
+    AFTERBUY_PARTNER_ID = os.getenv("AFTERBUY_PARTNER_ID")
+    AFTERBUY_PARTNER_TOKEN = os.getenv("AFTERBUY_PARTNER_TOKEN")
+    AFTERBUY_ACCOUNT_TOKEN = os.getenv("AFTERBUY_ACCOUNT_TOKEN")
+    AFTERBUY_USER_ID = os.getenv("AFTERBUY_USER_ID")
+    AFTERBUY_USER_PASSWORD = os.getenv("AFTERBUY_USER_PASSWORD")
 
     # Flask Configuration
     FLASK_ENV = os.getenv("FLASK_ENV", "production")
     FLASK_DEBUG = os.getenv("FLASK_DEBUG", "False").lower() == "true"
+    SECRET_KEY = os.getenv("SECRET_KEY")
+
+    # Session cookies (admin login)
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = "Lax"
+    SESSION_COOKIE_SECURE = (
+        os.getenv("SESSION_COOKIE_SECURE", "True").lower() == "true"
+    )
+    REMEMBER_COOKIE_HTTPONLY = True
+    REMEMBER_COOKIE_SECURE = SESSION_COOKIE_SECURE
+    PERMANENT_SESSION_LIFETIME = timedelta(hours=12)
 
     # Database Configuration
     # Use absolute path for local development
@@ -53,9 +66,7 @@ class Config:
         os.getenv("EMAIL_USE_TLS") or os.getenv("MAIL_USE_TLS", "True")
     ).lower() == "true"
     MAIL_USE_SSL = os.getenv("MAIL_USE_SSL", "False").lower() == "true"
-    MAIL_USERNAME = os.getenv("EMAIL_HOST_USER") or os.getenv(
-        "MAIL_USERNAME", "order@jvmoebel.de"
-    )
+    MAIL_USERNAME = os.getenv("EMAIL_HOST_USER") or os.getenv("MAIL_USERNAME", "")
     MAIL_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD") or os.getenv("MAIL_PASSWORD", "")
     MAIL_DEFAULT_SENDER = os.getenv("DEFAULT_FROM_EMAIL") or os.getenv(
         "MAIL_DEFAULT_SENDER", MAIL_USERNAME
@@ -78,3 +89,22 @@ class Config:
     # Google Cloud Speech-to-Text (requires GOOGLE_APPLICATION_CREDENTIALS env var)
     # Deepgram API Key (sign up at https://deepgram.com/)
     DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY", "")
+
+
+# Settings without which the app must not run in production
+REQUIRED_SETTINGS = (
+    "SECRET_KEY",
+    "AFTERBUY_PARTNER_ID",
+    "AFTERBUY_PARTNER_TOKEN",
+    "AFTERBUY_ACCOUNT_TOKEN",
+    "AFTERBUY_USER_ID",
+    "AFTERBUY_USER_PASSWORD",
+)
+
+
+def missing_settings(config_obj=Config):
+    """Return names of required settings that are empty"""
+    missing = [name for name in REQUIRED_SETTINGS if not getattr(config_obj, name)]
+    if config_obj.TWILIO_VALIDATE_REQUESTS and not config_obj.TWILIO_AUTH_TOKEN:
+        missing.append("TWILIO_AUTH_TOKEN")
+    return missing

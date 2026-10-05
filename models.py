@@ -2,7 +2,9 @@
 """
 Database Models for Voice Assistant
 """
+from flask_login import UserMixin
 from flask_sqlalchemy import SQLAlchemy
+from werkzeug.security import check_password_hash, generate_password_hash
 from datetime import datetime
 import enum
 
@@ -83,3 +85,41 @@ class Order(db.Model):
 
     def __repr__(self):
         return f"<Order {self.order_number}: {self.status}>"
+
+
+class UserRole(enum.Enum):
+    """Dashboard user roles"""
+
+    ADMIN = "admin"
+    OPERATOR = "operator"
+
+
+class User(UserMixin, db.Model):
+    """Dashboard user"""
+
+    __tablename__ = "users"
+
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False, index=True)
+    password_hash = db.Column(db.String(255), nullable=False)
+    role = db.Column(db.Enum(UserRole), nullable=False, default=UserRole.OPERATOR)
+    is_active_user = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    last_login_at = db.Column(db.DateTime)
+
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
+
+    @property
+    def is_active(self):
+        return self.is_active_user
+
+    @property
+    def is_admin(self):
+        return self.role == UserRole.ADMIN
+
+    def __repr__(self):
+        return f"<User {self.username} ({self.role.value})>"
