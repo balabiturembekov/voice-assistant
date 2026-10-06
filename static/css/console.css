@@ -476,3 +476,7 @@ body.console .modal-title { font-size: 16px; font-weight: 600; }
 .check-cell { width: 44px; }
 .check-cell input { width: 18px; height: 18px; accent-color: var(--primary); cursor: pointer; }
 .danger-list { margin: 8px 0 0; padding-left: 18px; font-size: 14px; color: var(--text-muted); }
+
+/* Dropdown menus inside scrollable tables: positioned to the viewport (Popper
+   strategy "fixed") so .table-wrap's overflow can't clip them */
+body.console .dropdown-menu { z-index: 1050; box-shadow: 0 10px 30px rgba(15, 23, 42, 0.25); }
