@@ -74,8 +74,8 @@ PROMPTS = {
             "Leider ist gerade niemand erreichbar. Gern nehme ich Ihre Nachricht auf."
         ),
         "voicemail": (
-            "Bitte sprechen Sie Ihre Nachricht nach dem Signalton und nennen Sie dabei "
-            "Ihren Namen und Ihre E-Mail-Adresse. Zum Beenden drücken Sie die Rautetaste."
+            "Bitte sprechen Sie Ihre Nachricht nach dem Signalton. "
+            "Zum Beenden drücken Sie die Rautetaste."
         ),
         "voicemail_thanks": (
             "Vielen Dank für Ihre Nachricht. Wir antworten Ihnen schnellstmöglich per E-Mail. "
@@ -147,10 +147,7 @@ PROMPTS = {
         "agent_connecting": "I'm connecting you with our team. One moment, please.",
         "agent_after_hours": "Our team is available {hours}. I'm happy to take a message.",
         "agent_no_answer": "Unfortunately, no one is available right now. I'm happy to take a message.",
-        "voicemail": (
-            "Please leave your message after the tone, including your name and email address. "
-            "Press the hash key when you're done."
-        ),
+        "voicemail": "Please leave your message after the tone. Press the hash key when you're done.",
         "voicemail_thanks": "Thank you for your message. We'll reply by email as soon as possible. Goodbye!",
         "voicemail_failed": "Sorry, I couldn't record your message. Please call us again.",
         "goodbye": "Thank you for calling. Goodbye!",
