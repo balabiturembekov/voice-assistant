@@ -157,6 +157,11 @@ document.querySelectorAll('[data-back]').forEach(function (link) {
     });
 });
 
+// Filters are always open on larger screens; collapsible on phones
+if (matchMedia('(min-width: 768px)').matches) {
+    document.querySelectorAll('[data-filters]').forEach(function (d) { d.open = true; });
+}
+
 // Mobile navigation drawer
 (function () {
     const sidebar = document.getElementById('sidebar');

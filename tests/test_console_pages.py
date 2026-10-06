@@ -1,5 +1,5 @@
 from models import Call, CallStatus, Conversation, Order, db
-from tests.conftest import login
+from tests.conftest import get_csrf_token, login
 
 
 def make_calls(n, **fields):
@@ -180,3 +180,28 @@ def test_detail_pages_have_back_link(client, app):
     order_html = client.get(f"/orders/{order.id}").get_data(as_text=True)
     assert 'href="/calls" data-back' in call_html and "Back to calls" in call_html
     assert 'href="/orders" data-back' in order_html and "Back to orders" in order_html
+
+
+def test_styled_error_pages(client, app):
+    login(client, "operator")
+    resp = client.get("/calls/999999")
+    assert resp.status_code == 404
+    html = resp.get_data(as_text=True)
+    assert "Page not found" in html and 'class="sidebar"' in html
+    resp = client.get("/users")
+    assert resp.status_code == 403 and "only available to admins" in resp.get_data(as_text=True)
+    resp = client.post("/api/calls/999999/status", json={"status": "COMPLETED"},
+                       headers={"X-CSRFToken": get_csrf_token(client, "/calls")})
+    assert resp.status_code == 404 and resp.is_json
+
+
+def test_tables_are_marked_for_mobile_cards(client, app):
+    call = make_calls(1)[0]
+    db.session.add(Order(call_id=call.id, order_number="1", lookup_result="not_found"))
+    db.session.commit()
+    login(client, "admin")
+    for path in ("/calls", "/orders", "/users"):
+        html = client.get(path).get_data(as_text=True)
+        assert "table-c table-stack" in html, path
+        assert 'data-label="' in html and "cell-primary" in html, path
+    assert "data-filters" in client.get("/calls").get_data(as_text=True)

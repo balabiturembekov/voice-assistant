@@ -1,5 +1,6 @@
 from flask import Flask, Response, flash, redirect, render_template, request, send_file, url_for
 from twilio.twiml.voice_response import VoiceResponse
+from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 from flask_migrate import Migrate
 import click
@@ -77,6 +78,25 @@ app.register_blueprint(auth_bp)
 app.register_blueprint(flow_bp)
 app.after_request(apply_voice)
 ui.register(app)
+
+
+ERROR_PAGES = {
+    403: ("You don't have access", "This page is only available to admins. Ask an admin if you need access."),
+    404: ("Page not found", "The page doesn't exist or the record was deleted."),
+    500: ("Something went wrong", "An unexpected error occurred. Please try again; if it keeps happening, tell an admin."),
+}
+
+
+def _error_page(error):
+    code = getattr(error, "code", 500) or 500
+    if request.path.startswith("/webhook/") or request.path.startswith("/api/") or request.path.startswith("/voice-messages/"):
+        return {"error": ERROR_PAGES.get(code, ERROR_PAGES[500])[0]}, code
+    title, message = ERROR_PAGES.get(code, ERROR_PAGES[500])
+    return render_template("error.html", code=code, title=title, message=message), code
+
+
+for _code in ERROR_PAGES:
+    app.register_error_handler(_code, _error_page)
 
 
 @app.template_filter("local_time")
@@ -189,6 +209,8 @@ def update_call_status_api(call_id):
             db.session.rollback()
             return {"error": "Failed to update status"}, 500
         
+    except HTTPException:
+        raise  # 404 for unknown ids is not a server error
     except Exception as e:
         logger.error(f"Error updating call status: {e}")
         return {"error": "Failed to update status"}, 500
@@ -223,6 +245,8 @@ def update_order_status_api(order_id):
             db.session.rollback()
             return {"error": "Failed to update order status"}, 500
         
+    except HTTPException:
+        raise  # 404 for unknown ids is not a server error
     except Exception as e:
         logger.error(f"Error updating order status: {e}")
         return {"error": "Failed to update order status"}, 500

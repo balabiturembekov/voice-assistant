@@ -68,7 +68,7 @@
         <span class="sub">{{ users | selectattr('is_active_user') | list | length }} active · {{ users | length }} total</span>
     </div>
     <div class="table-wrap">
-        <table class="table-c">
+        <table class="table-c table-stack">
             <thead>
                 <tr>
                     <th scope="col">User</th>
@@ -83,7 +83,7 @@
             {% for user in users %}
             {% set is_me = user.id == current_user.id %}
             <tr>
-                <td>
+                <td class="cell-primary">
                     <div class="cell-phone">
                         <span class="avatar" aria-hidden="true">{{ user.initials }}</span>
                         <div>
@@ -94,11 +94,11 @@
                         </div>
                     </div>
                 </td>
-                <td>
+                <td data-label="Role">
                     {% if user.is_admin %}{{ ui.badge({'tone': 'info', 'icon': 'fa-user-shield', 'label': 'Admin'}) }}
                     {% else %}{{ ui.badge({'tone': 'neutral', 'icon': 'fa-headset', 'label': 'Operator'}) }}{% endif %}
                 </td>
-                <td>
+                <td data-label="Status">
                     {% if not user.is_active_user %}
                     {{ ui.badge({'tone': 'neutral', 'icon': 'fa-ban', 'label': 'Disabled'}) }}
                     {% elif user.must_change_password %}
@@ -107,14 +107,17 @@
                     {{ ui.badge({'tone': 'good', 'icon': 'fa-circle-check', 'label': 'Active'}) }}
                     {% endif %}
                 </td>
-                <td class="muted tabular">{{ user.last_login_at | local_time if user.last_login_at else 'Never' }}</td>
-                <td class="muted">
-                    <span class="tabular">{{ user.created_at | local_time('%d.%m.%Y') }}</span>
-                    {% if user.created_by %}<div style="font-size: 13px;">by {{ user.created_by.username }}</div>{% endif %}
+                <td data-label="Last sign-in" class="muted tabular">{{ user.last_login_at | local_time if user.last_login_at else 'Never' }}</td>
+                <td data-label="Added" class="muted">
+                    <div>
+                        <span class="tabular">{{ user.created_at | local_time('%d.%m.%Y') }}</span>
+                        {% if user.created_by %}<div style="font-size: 13px;">by {{ user.created_by.username }}</div>{% endif %}
+                    </div>
                 </td>
-                <td class="text-end">
+                <td class="text-end cell-actions">
                     <div class="dropdown">
                         <button type="button" class="btn-c btn-ghost btn-sm-c" data-bs-toggle="dropdown" aria-expanded="false"
+                                data-bs-popper-config='{"strategy": "fixed"}'
                                 aria-label="Actions for {{ user.username }}">
                             <i class="fas fa-ellipsis" aria-hidden="true"></i>
                         </button>

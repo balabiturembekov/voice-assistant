@@ -176,3 +176,10 @@ def test_operator_cannot_manage_users(client, app):
     login(client, "operator")
     target = user("admin")
     assert client.post(f"/users/{target.id}/toggle", data={"csrf_token": get_csrf_token(client, "/account")}).status_code == 403
+
+
+def test_user_action_menu_is_not_clipped_by_the_table(client, app):
+    """The table scrolls horizontally (overflow), which clips absolutely positioned menus"""
+    login(client, "admin")
+    html = client.get("/users").get_data(as_text=True)
+    assert """data-bs-popper-config='{"strategy": "fixed"}'""" in html

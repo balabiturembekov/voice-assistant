@@ -71,6 +71,11 @@
 {{ ui.page_header("Calls", "Every call Lisa answered, newest first.") }}
 
 <section class="card-c" aria-label="Calls">
+    <details class="filters-toggle" data-filters {% if filtered %}open{% endif %}>
+        <summary>
+            <span><i class="fas fa-sliders" aria-hidden="true"></i> Filters{% if filtered %} · active{% endif %}</span>
+            <i class="fas fa-chevron-down chev" aria-hidden="true"></i>
+        </summary>
     <form class="filters" method="get" role="search">
         <div>
             <label class="form-label" for="phone">Phone number</label>
@@ -102,6 +107,7 @@
             {% if filtered %}<a class="btn-c btn-ghost" href="{{ url_for('calls') }}">Reset</a>{% endif %}
         </div>
     </form>
+    </details>
 
     {% if calls.items %}
     {% set can_delete = current_user.is_admin %}
@@ -117,7 +123,7 @@
     </div>
     {% endif %}
     <div class="table-wrap">
-        <table class="table-c">
+        <table class="table-c table-stack">
             <thead>
                 <tr>
                     {% if can_delete %}<th scope="col" class="check-cell"><input type="checkbox" id="checkAll" aria-label="Select all calls on this page"></th>{% endif %}
@@ -133,17 +139,17 @@
             {% set outcome, tone = outcomes[call.id] %}
             <tr>
                 {% if can_delete %}<td class="check-cell"><input type="checkbox" name="call_ids" value="{{ call.id }}" class="row-check" aria-label="Select call from {{ call.phone_number }}"></td>{% endif %}
-                <td>
+                <td class="cell-primary">
                     <div class="cell-phone">
                         <span class="avatar" aria-hidden="true"><i class="fas fa-phone"></i></span>
                         <a class="row-link tabular" href="{{ url_for('call_detail', call_id=call.id) }}">{{ call.phone_number or 'Unknown' }}</a>
                         <span class="lang">{{ call.language | upper }}</span>
                     </div>
                 </td>
-                <td>{{ ui.badge({'tone': tone, 'icon': {'good': 'fa-circle-check', 'info': 'fa-circle-info', 'warning': 'fa-triangle-exclamation', 'serious': 'fa-circle-exclamation', 'neutral': 'fa-circle'}[tone], 'label': outcome}) }}</td>
-                <td>{{ ui.call_status(call.status) }}</td>
-                <td class="muted tabular">{{ call.created_at | local_time }}</td>
-                <td class="text-end">
+                <td data-label="Outcome">{{ ui.badge({'tone': tone, 'icon': {'good': 'fa-circle-check', 'info': 'fa-circle-info', 'warning': 'fa-triangle-exclamation', 'serious': 'fa-circle-exclamation', 'neutral': 'fa-circle'}[tone], 'label': outcome}) }}</td>
+                <td data-label="Status">{{ ui.call_status(call.status) }}</td>
+                <td data-label="Started" class="muted tabular">{{ call.created_at | local_time }}</td>
+                <td class="text-end cell-actions">
                     <a class="row-link" href="{{ url_for('call_detail', call_id=call.id) }}" aria-label="Open call from {{ call.phone_number }}">
                         <i class="fas fa-chevron-right" aria-hidden="true"></i>
                     </a>

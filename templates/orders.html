@@ -10,6 +10,11 @@
 {{ ui.page_header("Orders", "Order numbers callers entered, what Lisa found in Afterbuy and how the caller was verified.") }}
 
 <section class="card-c" aria-label="Orders">
+    <details class="filters-toggle" data-filters {% if filtered %}open{% endif %}>
+        <summary>
+            <span><i class="fas fa-sliders" aria-hidden="true"></i> Filters{% if filtered %} · active{% endif %}</span>
+            <i class="fas fa-chevron-down chev" aria-hidden="true"></i>
+        </summary>
     <form class="filters" method="get" role="search">
         <div>
             <label class="form-label" for="order_number">Order or invoice number</label>
@@ -37,10 +42,11 @@
             {% if filtered %}<a class="btn-c btn-ghost" href="{{ url_for('orders') }}">Reset</a>{% endif %}
         </div>
     </form>
+    </details>
 
     {% if orders.items %}
     <div class="table-wrap">
-        <table class="table-c">
+        <table class="table-c table-stack">
             <thead>
                 <tr>
                     <th scope="col">Order</th>
@@ -56,14 +62,14 @@
             <tbody>
             {% for order in orders.items %}
             <tr>
-                <td><a class="row-link mono" href="{{ url_for('order_detail', order_id=order.id) }}"><strong>{{ order.order_number }}</strong></a></td>
-                <td><a class="row-link tabular" href="{{ url_for('call_detail', call_id=order.call_id) }}">{{ order.call.phone_number or 'Unknown' }}</a></td>
-                <td>{{ ui.lookup(order.lookup_result) }}{% if is_overdue(order) %} {{ ui.overdue() }}{% endif %}</td>
-                <td>{% if order.lookup_result == 'found' %}{{ ui.verification(order.verification) }}{% else %}<span class="muted">—</span>{% endif %}</td>
-                <td>{% if order.status %}{{ ui.order_status(order.status) }}{% else %}<span class="muted">—</span>{% endif %}</td>
-                <td class="tabular">{{ order.promised_delivery_date.strftime('%d.%m.%Y') if order.promised_delivery_date else '—' }}</td>
-                <td class="muted tabular">{{ order.created_at | local_time }}</td>
-                <td class="text-end" style="white-space: nowrap;">
+                <td class="cell-primary"><a class="row-link mono" href="{{ url_for('order_detail', order_id=order.id) }}"><strong>{{ order.order_number }}</strong></a></td>
+                <td data-label="Caller"><a class="row-link tabular" href="{{ url_for('call_detail', call_id=order.call_id) }}">{{ order.call.phone_number or 'Unknown' }}</a></td>
+                <td data-label="Result"><span>{{ ui.lookup(order.lookup_result) }}{% if is_overdue(order) %} {{ ui.overdue() }}{% endif %}</span></td>
+                <td data-label="Verification">{% if order.lookup_result == 'found' %}{{ ui.verification(order.verification) }}{% else %}<span class="muted">—</span>{% endif %}</td>
+                <td data-label="Staff status">{% if order.status %}{{ ui.order_status(order.status) }}{% else %}<span class="muted">—</span>{% endif %}</td>
+                <td data-label="Est. delivery" class="tabular">{{ order.promised_delivery_date.strftime('%d.%m.%Y') if order.promised_delivery_date else '—' }}</td>
+                <td data-label="Looked up" class="muted tabular">{{ order.created_at | local_time }}</td>
+                <td class="text-end cell-actions" style="white-space: nowrap;">
                     <button type="button" class="btn-c btn-ghost btn-sm-c"
                             onclick='openOrderStatus({{ order.id }}, {{ order.order_number | tojson }}, {{ (order.status or "") | tojson }})'>
                         <i class="fas fa-pen" aria-hidden="true"></i><span class="sr-only">Update order {{ order.order_number }}</span>
