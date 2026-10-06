@@ -67,3 +67,13 @@ def test_greeting_introduces_lisa_and_company(client, app):
     text = " ".join(say.text for say in says(resp))
     assert "Lisa" in text and Config.COMPANY_NAME in text
     assert "Datenschutz" in text
+
+
+def test_voicemail_promises_an_email_reply_and_asks_for_the_address():
+    from prompts import PROMPTS
+
+    for language in ("de", "en"):
+        texts = PROMPTS[language]
+        assert "mail" in texts["voicemail"].lower()        # asks for the email address
+        assert "mail" in texts["voicemail_thanks"].lower()  # promises a reply by email
+        assert "zurück" not in texts["voicemail_thanks"] and "call you back" not in texts["voicemail_thanks"]
