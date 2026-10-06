@@ -134,7 +134,7 @@
         </div>
         {% if recent_calls %}
         <div class="table-wrap">
-            <table class="table-c">
+            <table class="table-c table-stack">
                 <thead>
                     <tr><th scope="col">Caller</th><th scope="col">Outcome</th><th scope="col">Time</th><th scope="col"><span class="sr-only">Details</span></th></tr>
                 </thead>
@@ -142,20 +142,20 @@
                 {% for call in recent_calls %}
                 {% set outcome, tone = outcomes[call.id] %}
                 <tr>
-                    <td>
+                    <td class="cell-primary">
                         <div class="cell-phone">
                             <span class="avatar" aria-hidden="true"><i class="fas fa-phone"></i></span>
                             <span class="tabular">{{ call.phone_number or 'Unknown' }}</span>
                             <span class="lang">{{ call.language | upper }}</span>
                         </div>
                     </td>
-                    <td>
+                    <td data-label="Outcome">
                         <span class="badge-c tone-{{ tone }}">
                             <i class="fas {{ {'good': 'fa-circle-check', 'info': 'fa-circle-info', 'warning': 'fa-triangle-exclamation', 'serious': 'fa-circle-exclamation', 'neutral': 'fa-circle'}[tone] }}" aria-hidden="true"></i>{{ outcome }}
                         </span>
                     </td>
-                    <td class="muted tabular">{{ call.created_at | local_time }}</td>
-                    <td class="text-end">
+                    <td data-label="Time" class="muted tabular">{{ call.created_at | local_time }}</td>
+                    <td class="text-end cell-actions">
                         <a class="row-link" href="/calls/{{ call.id }}" aria-label="Open call from {{ call.phone_number }}">
                             <i class="fas fa-chevron-right" aria-hidden="true"></i>
                         </a>
@@ -177,13 +177,13 @@
         </div>
         {% if voice_messages %}
         <div class="table-wrap">
-            <table class="table-c">
+            <table class="table-c table-stack">
                 <thead><tr><th scope="col">Message</th><th scope="col">Email</th></tr></thead>
                 <tbody>
                 {% for vm in voice_messages %}
                 {% set st = vm.email_status.value %}
                 <tr>
-                    <td>
+                    <td class="cell-primary">
                         <a class="row-link" href="/calls/{{ vm.call_id }}">
                             <strong class="tabular">{{ vm.call.phone_number or 'Unknown' }}</strong>
                         </a>
@@ -192,7 +192,7 @@
                             {% if vm.transcription_text %} · “{{ vm.transcription_text | truncate(48) }}”{% endif %}
                         </div>
                     </td>
-                    <td>
+                    <td data-label="Email">
                         {% set tone = {'sent': 'good', 'failed': 'serious', 'sending': 'info', 'pending': 'neutral'}[st] %}
                         <span class="badge-c tone-{{ tone }}">
                             <i class="fas {{ {'sent': 'fa-circle-check', 'failed': 'fa-circle-exclamation', 'sending': 'fa-paper-plane', 'pending': 'fa-clock'}[st] }}" aria-hidden="true"></i>{{ st | capitalize }}
@@ -224,16 +224,16 @@
         </p>
     </div>
     <div class="table-wrap">
-        <table class="table-c">
+        <table class="table-c table-stack">
             <thead><tr><th scope="col">Order</th><th scope="col">Wrong postcodes</th><th scope="col">Calls</th><th scope="col">Last attempt</th><th scope="col">Risk</th></tr></thead>
             <tbody>
             {% for item in v.orders %}
             <tr>
-                <td><a class="row-link mono" href="{{ url_for('orders', order_number=item.number) }}"><strong>{{ item.number }}</strong></a></td>
-                <td class="tabular">{{ item.attempts }}</td>
-                <td class="tabular">{{ item.calls }}</td>
-                <td class="muted tabular">{{ item.last | local_time }}</td>
-                <td>
+                <td class="cell-primary"><a class="row-link mono" href="{{ url_for('orders', order_number=item.number) }}"><strong>{{ item.number }}</strong></a></td>
+                <td data-label="Wrong postcodes" class="tabular">{{ item.attempts }}</td>
+                <td data-label="Calls" class="tabular">{{ item.calls }}</td>
+                <td data-label="Last attempt" class="muted tabular">{{ item.last | local_time }}</td>
+                <td data-label="Risk">
                     {% if item.suspicious %}
                     <span class="badge-c tone-serious"><i class="fas fa-user-secret" aria-hidden="true"></i>Possible probing</span>
                     {% else %}

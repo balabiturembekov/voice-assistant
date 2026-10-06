@@ -136,14 +136,14 @@
             </div>
             {% if afterbuy.line_items %}
             <div class="table-wrap" style="border-top: 1px solid var(--border);">
-                <table class="table-c">
+                <table class="table-c table-stack">
                     <thead><tr><th scope="col">Item</th><th scope="col" class="text-end">Qty</th><th scope="col" class="text-end">Price</th></tr></thead>
                     <tbody>
                     {% for item in afterbuy.line_items %}
                     <tr>
-                        <td>{{ item.title or '—' }}</td>
-                        <td class="text-end tabular">{{ item.quantity or '—' }}</td>
-                        <td class="text-end tabular">{{ money(item.price) }}</td>
+                        <td class="cell-primary">{{ item.title or '—' }}</td>
+                        <td data-label="Qty" class="text-end tabular">{{ item.quantity or '—' }}</td>
+                        <td data-label="Price" class="text-end tabular">{{ money(item.price) }}</td>
                     </tr>
                     {% endfor %}
                     </tbody>

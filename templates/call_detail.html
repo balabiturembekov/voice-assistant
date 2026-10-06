@@ -41,14 +41,14 @@
             <div class="card-c-header"><h2 id="orders-title">Orders looked up</h2></div>
             {% if orders %}
             <div class="table-wrap">
-                <table class="table-c">
+                <table class="table-c table-stack">
                     <tbody>
                     {% for order in orders %}
                     <tr>
-                        <td><a class="row-link mono" href="{{ url_for('order_detail', order_id=order.id) }}">{{ order.order_number }}</a></td>
-                        <td class="text-end">
-                            {{ ui.lookup(order.lookup_result) }}
-                            {% if order.lookup_result == 'found' %}{{ ui.verification(order.verification) }}{% endif %}
+                        <td class="cell-primary"><a class="row-link mono" href="{{ url_for('order_detail', order_id=order.id) }}">{{ order.order_number }}</a></td>
+                        <td data-label="Result" class="text-end">
+                            <span>{{ ui.lookup(order.lookup_result) }}
+                            {% if order.lookup_result == 'found' %}{{ ui.verification(order.verification) }}{% endif %}</span>
                         </td>
                     </tr>
                     {% endfor %}

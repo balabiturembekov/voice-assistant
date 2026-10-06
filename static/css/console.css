@@ -83,7 +83,8 @@ body.console {
 :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
 /* --- Shell ------------------------------------------------------------------ */
-.shell { display: grid; grid-template-columns: 1fr; min-height: 100dvh; }
+/* minmax(0, 1fr): a plain 1fr track can't shrink below wide content (tables) */
+.shell { display: grid; grid-template-columns: minmax(0, 1fr); min-height: 100dvh; }
 @media (min-width: 992px) { .shell { grid-template-columns: 248px minmax(0, 1fr); } }
 
 .sidebar {
@@ -196,8 +197,8 @@ body.console {
 .link-c { color: var(--primary); text-decoration: none; font-weight: 500; font-size: 14px; }
 .link-c:hover { color: var(--primary-hover); text-decoration: underline; }
 
-.grid-kpi { display: grid; gap: 16px; grid-template-columns: 1fr; margin-bottom: 24px; }
-@media (min-width: 576px) { .grid-kpi { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.grid-kpi { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-bottom: 24px; }
+@media (min-width: 576px) { .grid-kpi { gap: 16px; } }
 @media (min-width: 1200px) { .grid-kpi { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 .kpi { padding: 18px 20px; }
 .kpi-label { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; color: var(--text-muted); }
@@ -208,8 +209,8 @@ body.console {
 .kpi-value { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; margin: 10px 0 2px; font-variant-numeric: tabular-nums; }
 .kpi-hint { font-size: 13px; color: var(--text-subtle); }
 
-.grid-2 { display: grid; gap: 16px; grid-template-columns: 1fr; margin-bottom: 24px; }
-@media (min-width: 1200px) { .grid-2 { grid-template-columns: 3fr 2fr; } }
+.grid-2 { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); margin-bottom: 24px; }
+@media (min-width: 1200px) { .grid-2 { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); } }
 
 /* Badges: tone colour + icon + text, never colour alone */
 .badge-c {
@@ -324,7 +325,7 @@ body.console {
 .page-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
 .stack { display: grid; gap: 16px; }
-.grid-detail { display: grid; gap: 16px; grid-template-columns: 1fr; margin-bottom: 16px; }
+.grid-detail { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); margin-bottom: 16px; }
 @media (min-width: 1200px) { .grid-detail { grid-template-columns: 360px minmax(0, 1fr); align-items: start; } }
 
 /* Buttons */
@@ -480,3 +481,69 @@ body.console .modal-title { font-size: 16px; font-weight: 600; }
 /* Dropdown menus inside scrollable tables: positioned to the viewport (Popper
    strategy "fixed") so .table-wrap's overflow can't clip them */
 body.console .dropdown-menu { z-index: 1050; box-shadow: 0 10px 30px rgba(15, 23, 42, 0.25); }
+
+/* --- Mobile: tables become stacked cards -------------------------------------------
+   Mark the table .table-stack, give each cell data-label, the main cell
+   .cell-primary, the actions cell .cell-actions and a checkbox cell .check-cell. */
+@media (max-width: 767.98px) {
+    .table-stack thead { display: none; }
+    .table-stack, .table-stack tbody, .table-stack tr, .table-stack td { display: block; width: 100%; }
+    .table-stack tr { position: relative; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+    .table-stack tbody tr:last-child { border-bottom: 0; }
+    .table-stack td {
+        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+        padding: 4px 0; border: 0; text-align: right; min-height: 28px;
+    }
+    .table-stack td[data-label]::before {
+        content: attr(data-label); flex: none; text-align: left;
+        font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-subtle);
+    }
+    .table-stack td.cell-primary { display: block; text-align: left; padding: 0 44px 8px 0; }
+    .table-stack td.cell-actions { position: absolute; top: 8px; right: 8px; width: auto; padding: 0; min-height: 0; }
+    .table-stack tr:has(.check-cell) { padding-left: 52px; }
+    .table-stack td.check-cell { position: absolute; top: 16px; left: 16px; width: auto; padding: 0; min-height: 0; }
+    .table-stack td.text-end { text-align: right; }
+    .table-wrap { overflow-x: visible; }
+
+    .page-header h1 { font-size: 22px; }
+    .page-actions { width: 100%; }
+    .page-actions .btn-c { flex: 1; }
+    .kpi { padding: 14px; }
+    .kpi-value { font-size: 24px; margin-top: 6px; }
+    .kpi-label { font-size: 12px; }
+    .kpi-icon { display: none; }
+    .card-c-header { padding: 14px 16px; flex-wrap: wrap; }
+    .card-c-body { padding: 16px; }
+    .filters { padding: 14px 16px; }
+    .filters .actions .btn-c { flex: 1; }
+    .pager { padding: 12px 16px; }
+    .pager-links { flex-wrap: wrap; }
+    .activity li { grid-template-columns: 28px minmax(0, 1fr); padding: 10px 16px; }
+    .activity time { grid-column: 2; }
+    .dl-row { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+    .secret { font-size: 16px; flex-wrap: wrap; }
+    .tl-head time { margin-left: 0; width: 100%; }
+}
+
+/* Chart tooltips near the edges stay inside the card */
+.chart-col:nth-child(-n+4) .chart-tip { left: 0; transform: none; }
+.chart-col:nth-last-child(-n+3) .chart-tip { left: auto; right: 0; transform: none; }
+
+/* Filters: collapsible on phones, always open on larger screens */
+.filters-toggle > summary { display: none; }
+@media (max-width: 767.98px) {
+    .filters-toggle > summary {
+        display: flex; align-items: center; justify-content: space-between; gap: 8px;
+        padding: 14px 16px; border-bottom: 1px solid var(--border); cursor: pointer;
+        font-size: 14px; font-weight: 600; list-style: none;
+    }
+    .filters-toggle > summary::-webkit-details-marker { display: none; }
+    .filters-toggle > summary .chev { transition: transform 150ms ease-out; color: var(--text-subtle); }
+    .filters-toggle[open] > summary .chev { transform: rotate(180deg); }
+}
+
+/* Error pages */
+.error-page { max-width: 480px; margin: 64px auto; text-align: center; }
+.error-page .code { font-size: 64px; font-weight: 700; letter-spacing: -0.03em; color: var(--primary); line-height: 1; }
+.error-page h1 { font-size: 22px; font-weight: 700; margin: 16px 0 8px; }
+.error-page p { color: var(--text-muted); margin: 0 0 24px; }
