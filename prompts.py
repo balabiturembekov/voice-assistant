@@ -78,7 +78,7 @@ PROMPTS = {
             "Zum Beenden drücken Sie die Rautetaste."
         ),
         "voicemail_thanks": (
-            "Vielen Dank für Ihre Nachricht. Wir rufen Sie schnellstmöglich zurück. "
+            "Vielen Dank für Ihre Nachricht. Wir antworten Ihnen schnellstmöglich per E-Mail. "
             "Auf Wiederhören!"
         ),
         "voicemail_failed": (
@@ -148,7 +148,7 @@ PROMPTS = {
         "agent_after_hours": "Our team is available {hours}. I'm happy to take a message.",
         "agent_no_answer": "Unfortunately, no one is available right now. I'm happy to take a message.",
         "voicemail": "Please leave your message after the tone. Press the hash key when you're done.",
-        "voicemail_thanks": "Thank you for your message. We'll call you back as soon as possible. Goodbye!",
+        "voicemail_thanks": "Thank you for your message. We'll reply by email as soon as possible. Goodbye!",
         "voicemail_failed": "Sorry, I couldn't record your message. Please call us again.",
         "goodbye": "Thank you for calling. Goodbye!",
         "error": "Sorry, a technical error occurred. Please call again later.",
